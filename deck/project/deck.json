@@ -1,0 +1,63 @@
+{
+ "v": 4,
+ "createdOnFiles": {
+  "v": 1,
+  "at": "2026-11-12T03:22:54Z"
+ },
+ "lists": "css",
+ "title": "Buying Blood, Not Knives — Math 585 Midterm",
+ "order": [
+  "cover",
+  "key",
+  "why-index",
+  "why-fear",
+  "ev-quintiles",
+  "ev-scalein",
+  "ev-regimes",
+  "design",
+  "rules",
+  "leverage",
+  "bt-equity",
+  "bt-alloc",
+  "trials",
+  "sharpe",
+  "risks",
+  "plan",
+  "team",
+  "refs"
+ ],
+ "sections": {
+  "s1": {
+   "description": "Thesis: own the index, add to it in fear",
+   "start": "cover"
+  },
+  "s2": {
+   "description": "Evidence that fear predicts higher index returns",
+   "start": "ev-quintiles"
+  },
+  "s3": {
+   "description": "Strategy: from DCA to a fixed-capital rule set with leverage",
+   "start": "design"
+  },
+  "s4": {
+   "description": "Backtest results and the honest trial log",
+   "start": "bt-equity"
+  },
+  "s5": {
+   "description": "Path to Sharpe ≥ 1, risks, plan and team",
+   "start": "sharpe"
+  }
+ },
+ "cover": "cover",
+ "faces": {
+  "space-grotesk": {
+   "family": "Space Grotesk",
+   "href": "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&display=swap"
+  },
+  "inter": {
+   "family": "Inter",
+   "href": "https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
+  }
+ },
+ "designSystems": []
+}

@@ -1,0 +1,2 @@
+Vendored unchanged from github.com/davidwang0116/nasdaq-mood-dashboard @ 24fc9c0 (v4 scoring).
+qc/signals.py is parity-tested against these files (tests/test_signals_parity.py).

@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+results/strategy_curves.pkl
+.ipynb_checkpoints/
+.DS_Store
