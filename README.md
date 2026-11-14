@@ -15,6 +15,17 @@ through 2x leverage — when fear is extreme, then rebuild the powder when greed
 This converts sentiment-weighted DCA (which needs fresh cash every month) into a
 fixed-capital strategy whose capital recycles.
 
+## Edge per indicator (research/edge_study.py)
+| Indicator (best rule, ≥8 episodes) | Trading: next-1y vs any day | 2x-DCA: extra wealth, rolling 5y plans |
+|---|---|---|
+| VIX | ≥40: **+37 pp** (p=0.001) | ≥25: **+2.1%**, 75% of plans, XIRR +0.63 pp |
+| VXN (2008+) | ≥40: **+31 pp** (p=0.001) | ≥30: +0.9% (n.s.) |
+| VIX spike vs 20d mean | ≥1.5×: **+15 pp** (p=0.005) | ≈0 |
+| QQQ drawdown / below MA200 | negative over full history (2000–02) | ≤−20%: **+2.0%**; <MA200: **+1.9%**, 88% of plans |
+| Dashboard composite | ≥95th pct: +14 pp (n.s.) | ≥70th pct: **+1.5%** |
+| CNN Fear & Greed (2011–23) | ≤10: +4 pp (n.s.) | ≤20: +0.4% |
+| Shiller CAPE (S&P, monthly) | ≤40th pct: **+4.3 pp** 12m (p=0.015) | ≤40th pct: +1.7% (60-month plans) |
+
 ## Results so far (local, synthetic leveraged ETFs calibrated to real TQQQ)
 
 | | Sharpe (excess, T-bills) | CAGR | Max DD |
@@ -40,6 +51,8 @@ research/common.py           loads the panel, imports the live dashboard's scori
 research/evidence.py         IC + bootstrap, quintiles, event study, regimes, CAPE, SPIVA  → figures/, results/
 research/strategy.py         fixed-capital engine + all variants (pre-registered rules in the docstring)
 research/strategy_figs.py    equity/drawdown, allocation, trial log, leverage-instrument comparison
+research/edge_study.py       per-indicator trading edge (1y vs any day) and 2x-DCA edge (rolling 5y plans) → results/edge_*.csv
+research/edge_figs.py        fig_edge_trading.png, fig_edge_dca.png
 qc/signals.py                QC-safe port of the dashboard composite (parity-tested to 1e-6)
 qc/main.py                   QC algorithm: sleeves, tranches, QLD/TQQQ/LEAPS sleeve, trend guard (paper/live-ready)
 qc/research_new_indicators.ipynb   QC Research: probe + IC/quintiles for VIX term structure, VVIX, HY OAS, AAII, put/call …
@@ -51,7 +64,8 @@ tools/build_deck.py          regenerates the midterm slide content; tools/build_
 Reproduce (Python ≥3.10, `pip install -r requirements.txt`, ~1 min):
 ```
 python data/build_dataset.py && python research/evidence.py && python research/strategy.py \
-  && python research/strategy_figs.py && python tests/test_signals_parity.py
+  && python research/strategy_figs.py && python research/edge_study.py \
+  && python research/edge_figs.py && python tests/test_signals_parity.py
 ```
 
 ## QuantConnect hand-off — TODO list for teammates
@@ -81,8 +95,8 @@ Not investment advice. Personal research for a course project.
 ## Team & timeline
 | Who | Owns | Midterm slides |
 |---|---|---|
-| [Member 1] | thesis, signal design, Sharpe levers, project lead | 1–4, 16–17 |
-| [Member 2] | evidence & statistics, new indicators on QC, trial log / Deflated Sharpe | 5–7, 13–14 |
-| [Member 3] | strategy rules, QC implementation, leverage & LEAPS, risk, live paper trading | 8–12, 15 |
+| [Member 1] | thesis, signal design, Sharpe levers, project lead | 1–4, 18–19 |
+| [Member 2] | evidence & statistics, new indicators on QC, trial log / Deflated Sharpe | 5–9, 15–16, 20 |
+| [Member 3] | strategy rules, QC implementation, leverage & LEAPS, risk, live paper trading | 10–14, 17 |
 
 Nov 16 midterm · Nov 17 → mid-Dec live paper trading of v2 (frozen) · v3 frozen Dec 3 and run in parallel · final report mid-December.

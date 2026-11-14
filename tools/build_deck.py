@@ -10,7 +10,8 @@ A = dict(spiva="99a7ca157f1ec4d5dff797b83915c3d0", quint="cb8985b74a17d7d7dee6c7
          event="989f9a50b90413912919a55b1c632ba0", regimes="551b82d101f844db8699bf3bff7bb8d1",
          cape="4773e8e384f71ec71d5a489954b3fb83", lev="7591298877b77b9172e239811ac4add1",
          equity="fd82fbfe31d8d8016f0638585540ec9c", alloc="6ca93dc8d344149ec1fafa96f678dabb",
-         trials="20e28440d2b2c2b6fc5f8b8121ab7f64", timeline="239e44323689c57ae668320cfcc9a7a3")
+         trials="20e28440d2b2c2b6fc5f8b8121ab7f64", timeline="239e44323689c57ae668320cfcc9a7a3",
+         edge_tr="PENDING_EDGE_TRADING", edge_dca="PENDING_EDGE_DCA")
 
 DARK, LIGHT, ALT, INK2, BLUE, BLUE_D, ORANGE, RULE = (
     "#14213D", "#FBFBF8", "#F2F0EA", "#4A5568", "#2A78D6", "#1C5CAB", "#EB6834", "#DCD9CF")
@@ -128,6 +129,16 @@ slide("ev-scalein", f'''{img("event", 1664, 640, "Two panels: left, average cumu
       "Speaker: [Member 2]. The design insight. Left: buy on EVERY extreme-fear day — average next-year QQQ return +33% (VIX≥30, 88% positive), +28% (composite top decile), +19% (CNN ≤20) vs +13.5% for any day. Right: buy only the FIRST day of each episode — barely better than random; VIX≥30 first days were worse (+11.5%), because the first day is often early in a crash (2008-09-15: −59% worst one-year path). So: tranches, spaced out by price, not one big bet.",
       eyebrow="Evidence 2 · design implication", title="The edge is in scaling in through the fear window, not catching day one")
 
+# 6b ─ trading edge per indicator
+slide("edge-trading", f'''{img("edge_tr", 1664, 690, "Bar chart: next-1-year QQQ return on trigger days minus any day, best parameter per indicator with at least 8 episodes: VIX ≥ 40 +37 pp, VXN ≥ 40 +31 pp, VIX spike +15 pp, price-sentiment proxy +16 pp, composite +14 pp, CAPE +4 pp, CNN F&G +4 pp; RSI, VRP, MA200 and drawdown triggers negative")}''',
+      "Speaker: [Member 2]. Trading edge = buy on every trigger day, hold one year, compare with buying on any day; capital use ignored. For each indicator we tried 4–5 thresholds (e.g. VIX 20/25/30/35/40) and kept the best one that fired in at least 8 separate episodes. Significance: circular-shift test (the trigger series is shifted in time 1,000 times, keeping its clustering). Only extreme-volatility triggers are significant: VIX ≥ 40 (+37 pp, 51% vs 14%), VXN ≥ 40 (+31 pp), VIX 1.5x spike (+15 pp). Price-based triggers (drawdown, MA200, RSI) LOSE over the full history because the 2000–02 bust fired them for three years. Orange diamonds = same rule in the last five years: mostly flat — 2022 fear was followed by more downside — except VIX ≥ 40 (April 2025, +19 pp, one episode). Choosing the best of a grid flatters the edge.",
+      eyebrow="Evidence 3 · trading edge by indicator", title="As a trade, only extreme volatility pays: VIX ≥ 40 adds +37 pp over a random day")
+
+# 6c ─ DCA edge per indicator
+slide("edge-dca", f'''{img("edge_dca", 1664, 690, "Bar chart: extra terminal wealth from doubling DCA contributions on trigger days versus spreading the same money evenly, mean over rolling 5-year plans: VIX ≥ 25 +2.1%, drawdown ≤ −20% +2.0%, below MA200 +1.9%, composite +1.5%, proxy +1.5%; last 5-year plan +3.6% to +6.4%")}''',
+      "Speaker: [Member 2]. DCA edge = invest 1 unit a day, 2 units on trigger days, versus spreading the SAME total money evenly. Tested on every 5-year DCA plan starting each month since 1999 (a single 27-year plan would reward moving money into the cheap early 2000s, which is not fear timing). Mild, frequent triggers win here: VIX ≥ 25 (+2.1% more wealth, beats even DCA in 75% of plans, XIRR +0.63 pp), drawdown ≤ −20%, below MA200 (88% of plans). In the last 5-year plan (Nov 2021 → Nov 2026) the gain is +3.6% to +6.4% because 2022 was a long fear year. So: for a saver with monthly cash, almost any fear trigger helps a little and very reliably; for a trader, only the extremes matter.",
+      eyebrow="Evidence 4 · DCA edge by indicator", title="For savers, doubling contributions on fear days adds 1.5–2% wealth, and 4–6% since 2021")
+
 # 7 ─ regimes + CAPE
 slide("ev-regimes", f'''<div style="display:flex;gap:32px;align-items:start">
 <div style="display:flex;flex-direction:column;gap:16px">{img("regimes", 830, 447, "Composite fear Q5 vs Q1 next-63-day QQQ return by period: 1999–2002 +7.2 vs −16.4; 2003–09 +4.3 vs +2.1; 2010–19 +7.7 vs +3.0; 2020–26 +5.8 vs +2.7")}
@@ -135,7 +146,7 @@ slide("ev-regimes", f'''<div style="display:flex;gap:32px;align-items:start">
 <div style="display:flex;flex-direction:column;gap:16px">{img("cape", 800, 530, "Scatter of Shiller CAPE vs next-10-year real S&P 500 return, 1881–2013 starts; rank correlation −0.49")}
 <p style="font-size:26px;line-height:1.4;color:{INK2};width:800px">Valuation works on years, not weeks: our next step is a point-in-time forward-P/E term.</p></div>
 </div>''', "Speaker: [Member 2]. Robustness. Within every sub-period the most-fearful quintile beats the calmest. But across periods it is a Simpson's-paradox story: 2000–02 was fearful for three years while QQQ fell 80%. Fear alone cannot tell a crash bottom from a valuation bust — that's why the dashboard carries a valuation term (35% weight) and why we add a trend guard. CAPE (Shiller data, 1881–2013 starts) shows valuation predicts 10-year returns (ρ = −0.49).",
-      eyebrow="Evidence 3 · robustness", title="Fear beats calm in every regime — valuation guards the long horizon")
+      eyebrow="Evidence 5 · robustness", title="Fear beats calm in every regime — valuation guards the long horizon")
 
 # 8 ─ DCA → fixed capital
 def flow(cond, act, col):
@@ -256,11 +267,26 @@ def role(name, what, slides):
             f'<p style="font-size:26px;line-height:1.4;color:{INK2}">{what}</p>'
             f'<p style="font-size:24px;color:{BLUE_D}"><b>Presents: {slides}</b></p></div>')
 slide("team", f'''<div style="display:flex;gap:28px;flex:1">
-{role("[Member 1]", "Thesis and signal design; Sharpe levers (vol targeting, powder assets); project lead", "slides 1–4, 16–17")}
-{role("[Member 2]", "Evidence and statistics: IC, bootstrap, new indicators on QC, trial log, Deflated Sharpe", "slides 5–7, 13–14")}
-{role("[Member 3]", "Strategy rules and QuantConnect implementation, leverage and LEAPS, risk, live paper trading", "slides 8–12, 15")}
+{role("[Member 1]", "Thesis and signal design; Sharpe levers (vol targeting, powder assets); project lead", "slides 1–4, 18–19")}
+{role("[Member 2]", "Evidence and statistics: IC, bootstrap, new indicators on QC, trial log, Deflated Sharpe", "slides 5–9, 15–16, 20")}
+{role("[Member 3]", "Strategy rules and QuantConnect implementation, leverage and LEAPS, risk, live paper trading", "slides 10–14, 17")}
 </div>''', "Speaker: [Member 1] closes and opens Q&A. Replace the placeholders with names.",
       eyebrow="Team", title="Who does what — and who presents it")
+
+# 17b ─ indicator coverage
+def col3(title, sub, items, accent):
+    li = "".join(f'<p style="font-size:24px;line-height:1.35;color:{INK2}">{t}</p>' for t in items)
+    return (f'<div style="flex:1;display:flex;flex-direction:column;gap:12px;padding:28px;background:#FFFFFF;border:1px solid {RULE};border-top:6px solid {accent};border-radius:12px">'
+            f'<h3 style="font-family:{HEAD};font-size:32px;font-weight:600;color:{DARK}">{title}</h3>'
+            f'<p style="font-size:24px;font-weight:600;color:{BLUE_D}">{sub}</p>{li}</div>')
+slide("coverage", f'''<div style="display:flex;gap:24px">
+{col3("1 · Tested here", "local / GitHub data, done", ["VIX, VIX spike (1990+)", "VXN (QC export, 2008+)", "CNN Fear &amp; Greed (archive 2011–23)", "QQQ drawdown, MA200, RSI", "Price-sentiment proxy, VRP", "Dashboard composite", "Shiller CAPE (S&amp;P, 1881+)"], BLUE)}
+{col3("2 · QuantConnect", "built-in data or our upload", ["CNN Fear &amp; Greed to 2026 (QC dataset)", "VIX9D / VIX3M / VVIX / SKEW", "HY &amp; IG spreads, real 10y, NFCI (FRED)", "Breadth: % NDX above MA200", "Point-in-time P/E, P/S, FCF yield", "Forward-P/E percentile (our file, look-ahead)", "AAII*, put/call, COT, margin debt (upload)"], ORANGE)}
+{col3("3 · Out of reach", "paid or never recorded", ["Point-in-time consensus forward EPS (I/B/E/S, FactSet)", "BofA Fund Manager Survey", "Investors Intelligence survey", "Citi Economic Surprise, MOVE history", "ETF flow history, social-media sentiment", "CNN Fear &amp; Greed before 2011"], "#6B7280")}
+</div>
+<p style="font-size:24px;color:{INK2}">* AAII’s full weekly history needs a paid membership; one teammate download is enough to upload it to QC.</p>''',
+      "Speaker: [Member 2]. What we could test today versus what goes to QuantConnect next. Group 2 is the TODO list for the QC research notebook (qc/research_new_indicators.ipynb). Group 3 is out of scope for a student budget; the forward-P/E percentile that our dashboard uses is in group 2 only with a caveat: its history uses realised EPS, so it is not point-in-time.",
+      eyebrow="Appendix · indicator coverage", title="Which indicators we can test, and where")
 
 # 18 ─ references
 refs = ["S&amp;P Dow Jones Indices (2026). SPIVA U.S. Scorecard, Year-End 2025.",

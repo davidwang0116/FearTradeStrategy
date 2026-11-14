@@ -2,7 +2,7 @@
  "v": 4,
  "createdOnFiles": {
   "v": 1,
-  "at": "2026-11-12T03:22:54Z"
+  "at": "2026-11-14T15:41:21Z"
  },
  "lists": "css",
  "title": "Buying Blood, Not Knives — Math 585 Midterm",
@@ -13,6 +13,8 @@
   "why-fear",
   "ev-quintiles",
   "ev-scalein",
+  "edge-trading",
+  "edge-dca",
   "ev-regimes",
   "design",
   "rules",
@@ -24,6 +26,7 @@
   "risks",
   "plan",
   "team",
+  "coverage",
   "refs"
  ],
  "sections": {
