@@ -15,16 +15,20 @@ through 2x leverage — when fear is extreme, then rebuild the powder when greed
 This converts sentiment-weighted DCA (which needs fresh cash every month) into a
 fixed-capital strategy whose capital recycles.
 
-## Edge per indicator (research/edge_study.py)
+## Edge per indicator (research/edge_study.py) — single indicators only
 | Indicator (best rule, ≥8 episodes) | Trading: next-1y vs any day | 2x-DCA: extra wealth, rolling 5y plans |
 |---|---|---|
 | VIX | ≥40: **+37 pp** (p=0.001) | ≥25: **+2.1%**, 75% of plans, XIRR +0.63 pp |
 | VXN (2008+) | ≥40: **+31 pp** (p=0.001) | ≥30: +0.9% (n.s.) |
 | VIX spike vs 20d mean | ≥1.5×: **+15 pp** (p=0.005) | ≈0 |
+| Equity risk premium E/P − 10y (S&P monthly 1881–2022) | ≥70th pct: **+7.8 pp** 12m (p=0.001) | +1.4%, 53% of 60-month plans |
+| Trailing P/E (S&P monthly) | ≤40th pct: **+5.2 pp** (p=0.02) | +1.6%, 52% of plans |
+| Shiller CAPE (S&P monthly) | ≤30th pct: **+4.8 pp** (p=0.015) | +1.5%, 59% of plans |
+| CNN Fear & Greed (2011–23) | ≤10: +3.8 pp (n.s.) | ≤20: +0.4% (n.s.) |
 | QQQ drawdown / below MA200 | negative over full history (2000–02) | ≤−20%: **+2.0%**; <MA200: **+1.9%**, 88% of plans |
-| Dashboard composite | ≥95th pct: +14 pp (n.s.) | ≥70th pct: **+1.5%** |
-| CNN Fear & Greed (2011–23) | ≤10: +4 pp (n.s.) | ≤20: +0.4% |
-| Shiller CAPE (S&P, monthly) | ≤40th pct: **+4.3 pp** 12m (p=0.015) | ≤40th pct: +1.7% (60-month plans) |
+| RSI, realized vol, 5-day drop, VRP, VXN−VIX | none significant / negative | RSI ≤40 +0.6%, 5-day ≤−4% +0.5%, RV ≥25% +1.4% (n.s.) |
+
+Earnings-based valuation inputs are lagged 3 months. Synthesized scores (dashboard composite, price-sentiment proxy) are excluded from this table.
 
 ## Results so far (local, synthetic leveraged ETFs calibrated to real TQQQ)
 

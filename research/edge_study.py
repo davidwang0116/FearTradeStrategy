@@ -61,17 +61,20 @@ def build_indicators(P):
     fgi = P["fgi"]
     proxy = 100 - S["Price-sentiment proxy (inv.)"]
     spike = vix / vix.rolling(20).mean()
-    # name: (series, op, grid, label-format, start)
+    r5 = (px / px.shift(5) - 1) * 100
+    spread = vxn - vix.where(vxn.notna())
+    # name: (series, op, grid, label-format) — single, directly observed indicators only
     I["VIX level"] = (vix, ">=", [20, 25, 30, 35, 40], "VIX ≥ {}")
     I["VIX spike vs 20d avg"] = (spike, ">=", [1.2, 1.3, 1.4, 1.5], "VIX ≥ {}× its 20d mean")
     I["VXN level"] = (vxn, ">=", [25, 30, 35, 40, 45], "VXN ≥ {}")
+    I["VXN minus VIX"] = (spread, ">=", [3, 4, 5, 6, 8], "VXN − VIX ≥ {} pts")
     I["CNN Fear & Greed"] = (fgi, "<=", [10, 15, 20, 25, 30], "F&G ≤ {}")
+    I["QQQ realized vol (21d)"] = (rv, ">=", [25, 30, 40, 50, 60], "realized vol ≥ {}%")
+    I["QQQ 5-day drop"] = (r5, "<=", [-4, -6, -8, -10, -12], "5-day return ≤ {}%")
     I["QQQ drawdown from 1y high"] = (dd * 100, "<=", [-10, -15, -20, -25, -30], "drawdown ≤ {}%")
     I["QQQ below 200-day MA"] = (ma * 100, "<=", [0, -5, -10, -15], "≥ {}% vs MA200")
     I["RSI(14) oversold"] = (rsi, "<=", [25, 30, 35, 40], "RSI ≤ {}")
-    I["Price-sentiment proxy"] = (proxy, "<=", [15, 20, 30, 40], "proxy ≤ {}")
     I["Variance risk premium (pct)"] = (vrp_pct * 100, ">=", [70, 80, 90, 95], "VRP ≥ {}th pct")
-    I["Dashboard composite (pct)"] = (comp_pct * 100, ">=", [70, 80, 90, 95], "composite ≥ {}th pct")
     return I
 
 
@@ -208,39 +211,58 @@ def evaluate(name, spec, P, px, sample_start, min_ep, fixed_thr=None):
     return G, bt, bd
 
 
-def cape_study():
-    """Monthly S&P 500 (Shiller, real total return 1881-2023): CAPE expanding-percentile trigger.
-    Trading edge = next-12-month return; DCA = rolling 60-month plans, 2x when triggered."""
+LAG_EARN = 3   # months: Shiller earnings are published with a lag
+
+
+def valuation_study():
+    """Monthly S&P 500 (Shiller, real total return): valuation triggers on causal
+    expanding percentiles. Earnings-based inputs lagged LAG_EARN months.
+    Trading edge = next-12-month return vs any month; DCA = rolling 60-month plans, 2x when triggered."""
     from common import ROOT
     sh = pd.read_csv(ROOT / "data/raw/shiller_sp500_monthly.csv", parse_dates=["Date"]).set_index("Date")
-    sh = sh[sh["PE10"] > 0]
+    sh = sh.loc[: "2023-06-01"]
     rp = sh["Real Price"]
     tr = (1 + (rp.pct_change() + sh["Real Dividend"] / 12 / rp.shift())).cumprod()
-    pct = sh["PE10"].expanding(120).rank(pct=True) * 100
+    E = sh["Earnings"].where(sh["Earnings"] > 0).shift(LAG_EARN)
+    cape = sh["PE10"].where(sh["PE10"] > 0).shift(LAG_EARN)
+    pe = (sh["SP500"] / E)
+    erp = 100 * E / sh["SP500"] - sh["Long Interest Rate"]           # earnings yield − 10y yield (Fed model)
+    pctl = lambda x: x.expanding(120).rank(pct=True) * 100
+    specs = {"Shiller CAPE": (pctl(cape), "<=", [10, 20, 30, 40], "CAPE ≤ {}th pct"),
+             "Trailing P/E": (pctl(pe), "<=", [10, 20, 30, 40], "P/E ≤ {}th pct"),
+             "Equity risk premium (E/P − 10y)": (pctl(erp), ">=", [60, 70, 80, 90], "ERP ≥ {}th pct")}
     fwd = tr.shift(-13) / tr.shift(-1) - 1
     pnext = tr.shift(-1)
     rows = []
-    for thr in [10, 20, 30, 40]:
-        m = (pct <= thr) & pct.notna()
-        v = pct.notna() & fwd.notna()
-        idx = np.flatnonzero(m[v].values)
-        ep = 0 if len(idx) == 0 else int(1 + (np.diff(idx) > 1).sum())
-        e = fwd[v][m[v]].mean() - fwd[v].mean()
-        vd = pct.notna() & pnext.notna()
-        mm, pv = m[vd].values, pnext[vd].values
-        w = np.where(mm, 2.0, 1.0)
-        cw, cwp, cip = [np.concatenate([[0], np.cumsum(a)]) for a in (w, w / pv, 1 / pv)]
-        st = np.arange(0, len(pv) - 60 + 1); en = st + 60
-        adv = (cwp[en] - cwp[st]) / ((cw[en] - cw[st]) / 60 * (cip[en] - cip[st])) - 1
-        # shift test for trading edge
-        f = fwd[v].values; mv = m[v].values; cnt = 0
-        for _ in range(N_SHIFT):
-            k = rng.integers(12, len(mv) - 12); r_ = np.roll(mv, k)
-            cnt += (f[r_].mean() - f.mean()) >= e
-        rows.append(dict(indicator="Shiller CAPE (S&P 500, monthly)", param=f"CAPE ≤ {thr}th pct", thr=thr,
-                         episodes=ep, trig_share=float(m[vd].mean()), edge_12m=e, p_shift=(cnt + 1) / (N_SHIFT + 1),
-                         dca_adv=adv.mean(), dca_win=(adv > 0).mean(), start=pct[v].index[0].date(),
-                         end=fwd[v].index[-1].date()))
+    for name, (x, op, grid, fmt) in specs.items():
+        for thr in grid:
+            m = ((x >= thr) if op == ">=" else (x <= thr)) & x.notna()
+            v = x.notna() & fwd.notna()
+            idx = np.flatnonzero(m[v].values)
+            ep = 0 if len(idx) == 0 else int(1 + (np.diff(idx) > 1).sum())
+            e = fwd[v][m[v]].mean() - fwd[v].mean()
+            vd = x.notna() & pnext.notna()
+            mm, pv = m[vd].values, pnext[vd].values
+            w = np.where(mm, 2.0, 1.0)
+            cw, cwp, cip = [np.concatenate([[0], np.cumsum(a_)]) for a_ in (w, w / pv, 1 / pv)]
+            st = np.arange(0, len(pv) - 60 + 1); en = st + 60
+            adv = (cwp[en] - cwp[st]) / ((cw[en] - cw[st]) / 60 * (cip[en] - cip[st])) - 1
+            f = fwd[v].values; mv = m[v].values; cnt = 0
+            for _ in range(N_SHIFT):
+                k = rng.integers(12, len(mv) - 12); r_ = np.roll(mv, k)
+                cnt += (f[r_].mean() - f.mean()) >= e
+            # DCA shift test
+            cntd = 0
+            for _ in range(N_SHIFT):
+                k = rng.integers(12, len(mm) - 12); w2 = np.where(np.roll(mm, k), 2.0, 1.0)
+                c2, c2p = np.concatenate([[0], np.cumsum(w2)]), np.concatenate([[0], np.cumsum(w2 / pv)])
+                a2 = (c2p[en] - c2p[st]) / ((c2[en] - c2[st]) / 60 * (cip[en] - cip[st])) - 1
+                cntd += a2.mean() >= adv.mean()
+            rows.append(dict(indicator=name, param=fmt.format(thr), thr=thr, episodes=ep,
+                             trig_share=float(m[vd].mean()), edge_12m=e, mean_trig_12m=fwd[v][m[v]].mean(),
+                             mean_all_12m=fwd[v].mean(), p_shift=(cnt + 1) / (N_SHIFT + 1),
+                             dca_adv=adv.mean(), dca_win=(adv > 0).mean(), p_shift_dca=(cntd + 1) / (N_SHIFT + 1),
+                             start=x[v].index[0].date(), end=fwd[v].index[-1].date()))
     return pd.DataFrame(rows)
 
 
@@ -262,8 +284,8 @@ def main():
     T, D = pd.DataFrame(T), pd.DataFrame(D)
     T.to_csv(RES / "edge_trading.csv", index=False)
     D.to_csv(RES / "edge_dca.csv", index=False)
-    cape = cape_study()
-    cape.to_csv(RES / "edge_cape.csv", index=False)
+    cape = valuation_study()
+    cape.to_csv(RES / "edge_valuation.csv", index=False)
     pd.set_option("display.width", 250)
     cols = ["indicator", "sample", "param", "episodes", "trig_days", "edge_252", "mean_trig_252", "mean_all_252", "edge_63", "p_shift", "start", "end"]
     print(T[cols].round(3).to_string())
