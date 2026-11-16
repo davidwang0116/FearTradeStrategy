@@ -77,7 +77,7 @@ def main():
                 ax.text(i + 1, v + (0.3 if v >= 0 else -0.3), f"{v:.1f}", ha="center",
                         va="bottom" if v >= 0 else "top", fontsize=9, color=INK2)
             row = ic[(ic.signal == s) & (ic.h == h)].iloc[0]
-            ax.set_title(s, fontsize=11)
+            ax.set_title({'Composite (dashboard v4)': 'Fear composite (see definition)'}.get(s, s), fontsize=11)
             ax.text(0.02, 0.97, f"IC {row.IC:+.2f} [{row.lo5:+.2f}, {row.hi95:+.2f}]\n{row.start.year}–2026, n={row.n}",
                     transform=ax.transAxes, va="top", fontsize=9, color=INK2)
             ax.set_xticks(range(1, 6), ["Q1\ncalm", "Q2", "Q3", "Q4", "Q5\nfear"])
