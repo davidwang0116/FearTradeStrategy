@@ -30,6 +30,23 @@ fixed-capital strategy whose capital recycles.
 
 Earnings-based valuation inputs are lagged 3 months. Synthesized scores (dashboard composite, price-sentiment proxy) are excluded from this table.
 
+## Selling volatility when fear is high (research/vol_selling.py, model-priced)
+* The premium is real but not where you might expect: VXN exceeds next-21-day realized QQQ vol by
+  +3.1 pts when fear is below median, **+4.8** at the 50–80th percentile, **−0.4** at the ≥80th
+  percentile while fear is still rising (worst 5%: −35 pts) and +2.7 once it starts receding.
+* Standalone cash-secured QQQ puts (2008–2026): every month at-the-money Sharpe 0.61 vs 0.72 for QQQ;
+  no conditional rule beats "always".
+* Writing puts on the 30% dry powder of the fear strategy: Sharpe +0.00 to +0.02, every 90%
+  block-bootstrap interval crosses zero, and the gain disappears with cheaper premiums
+  (ATM IV 0.85 × VXN). It mostly adds CAGR (+1.3–2 pp) with more negative skew.
+* Real-quote check: qc/put_writing.py.
+
+## Top-10 stocks by dollar volume
+* Rigorous version: qc/top10_dollar_volume.py (point-in-time universe, rules: equal, invvol,
+  dollarvol, reversal, momentum, drawdown, optional trend guard).
+* research/top10_local.py is ILLUSTRATIVE ONLY (11 hand-picked tech winners, survivorship-biased):
+  within those names no weighting rule clearly beats equal weight.
+
 ## Results so far (local, synthetic leveraged ETFs calibrated to real TQQQ)
 
 | | Sharpe (excess, T-bills) | CAGR | Max DD |
@@ -57,6 +74,10 @@ research/strategy.py         fixed-capital engine + all variants (pre-registered
 research/strategy_figs.py    equity/drawdown, allocation, trial log, leverage-instrument comparison
 research/edge_study.py       per-indicator trading edge (1y vs any day) and 2x-DCA edge (rolling 5y plans) → results/edge_*.csv
 research/edge_figs.py        fig_edge_trading.png, fig_edge_dca.png
+research/vol_selling.py      VRP by fear level; cash-secured puts / spreads, standalone and on the dry powder
+research/top10_local.py      illustrative top-10 dollar-volume rules (biased sample)
+qc/put_writing.py            QC: put writing on real option quotes
+qc/top10_dollar_volume.py    QC: point-in-time top-10 dollar-volume universe with weighting rules
 qc/signals.py                QC-safe port of the dashboard composite (parity-tested to 1e-6)
 qc/main.py                   QC algorithm: sleeves, tranches, QLD/TQQQ/LEAPS sleeve, trend guard (paper/live-ready)
 qc/research_new_indicators.ipynb   QC Research: probe + IC/quintiles for VIX term structure, VVIX, HY OAS, AAII, put/call …
