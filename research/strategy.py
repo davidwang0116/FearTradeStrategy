@@ -79,9 +79,13 @@ def prepare(P, S):
     return D
 
 
-def run(D, c: Cfg, start, end, capital=100_000.0):
+def run(D, c: Cfg, start, end, capital=100_000.0, *, tranche_entry=None):
+    """Simulate the portfolio, optionally using a custom close-time core tranche gate."""
     D = D.loc[start:end].copy()
     D = D.dropna(subset=["r_qqq"] + [f"r_{k}" for k, _ in c.core])
+    gate = D["p"].ge(c.tranche_p) if tranche_entry is None else (
+        tranche_entry.reindex(D.index).astype("boolean").fillna(False))
+    D["tranche_entry"] = gate
     n = len(D)
     idx = D.index
     # holdings in dollars
@@ -143,7 +147,7 @@ def run(D, c: Cfg, start, end, capital=100_000.0):
                     if excess > 0:
                         buy_core(excess, "reinvest")
             # tranche buy
-            if not np.isnan(p) and p >= c.tranche_p and i - last_tranche_i >= c.tranche_gap and \
+            if prev["tranche_entry"] and i - last_tranche_i >= c.tranche_gap and \
                     (px <= c.tranche_step * last_tranche_px or i - last_tranche_i > 126):
                 if cash > 1:
                     buy_core(c.tranche * V, "tranche")
