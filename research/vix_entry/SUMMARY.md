@@ -1,15 +1,24 @@
 # VIX entry indicator: what we tested and what we found
 
-This covers the VIX indicator work only: which VIX conditions have come before higher QQQ returns, how often they occur, and how far the evidence can be trusted. Portfolio buying and selling rules are [parked](#10-parked-portfolio-work).
+This covers the VIX indicator work only: which VIX conditions have come before higher QQQ returns, how often they occur, and how far the evidence can be trusted. Entry and exit tests built on the trigger are in [section 11](#11-entry-and-exit-tests-on-top-of-the-vix-trigger), and every other VIX signal as the entry is in [section 12](#12-every-vix-signal-as-the-entry-point). The v2 portfolio work is [parked](#10-parked-portfolio-work).
 
 ## 1. In short
 
-- **A high VIX has come before above-average QQQ returns.** When VIX closed at 24 or higher, the next 63 sessions (about three months) beat the all-date average by 3.51 pp in training and 3.90 pp later.
+- **Buying once per episode has earned little more than buying on an average date.** The first VIX ≥24 close of each episode, held 63 sessions after costs, beat the average date by 1.68 pp in training (16 episodes) and 0.32 pp later (12). Without its best episode, later is −1.95 pp. With the study's other episode definition (21 quiet sessions) it is −0.86 and −0.23 pp.
+
+| One purchase per episode at VIX ≥24 | Training excess (return) | Later excess (return) | Better than an average date, training / later |
+|---|---:|---:|---:|
+| New episode after VIX falls to its median | +1.68 pp (5.50%) | +0.32 pp (5.64%) | 9 of 16 / 6 of 12 |
+| New episode after 21 quiet sessions | −0.86 pp (2.96%) | −0.23 pp (5.09%) | 8 of 16 / 6 of 12 |
+
+- **Counting every signal day looks much better.** When VIX closed at 24 or higher, the next 63 sessions (about three months) beat the all-date average by 3.51 pp in training and 3.90 pp later. Long episodes count many times here, and the later figure is −0.51 pp without 2020.
 - **Requiring VIX to be easing strengthens the training result.** Our reference rule is **VIX close ≥24 and below its close 20 sessions earlier**: +6.55 pp in training and +5.37 pp later (10.81% mean return, 128 signal days).
 - **Most of the later result is one episode.** April to August 2020 supplies 64 of those 128 days. Without it the spread is −2.53 pp. Without any 2020 dates it is −3.59 pp. Counting each of nine episodes once, it is +0.40 pp.
 - **Easing over 5 or 10 sessions holds up better later.** Ten-day easing is +6.59 pp later, +0.53 pp without 2020 and +1.33 pp without its largest episode. Training favours 20 days, so we have not settled the lookback.
 - **VIX rank and term structure look strong later but not in training.** Rank ≥80% is +0.73 pp in training and +6.84 pp later. VIX above VIX3M beats VIX at or below VIX3M later and loses to it in training.
 - **The signal is rare and uneven.** The reference fires in about 1.4 episodes a year later, with gaps from 30 to 635 sessions.
+- **Buying rules on top of it added nothing.** No wait, split, ladder or exit passed our rule against buying at the trigger and holding 63 sessions (2008–2019).
+- **No other VIX signal is a better entry either.** Of 42 signals (rank lookbacks, easing, floors and combinations), the 11 that passed in training are about what luck gives, and none repeats it later.
 - **Status: a promising pattern, with no independent confirmation.** We looked at both samples while choosing rules, and a handful of episodes dominate both.
 
 ## 2. Terms
@@ -328,9 +337,180 @@ Outside the current focus. These results come from using a VIX rule as the gate 
 
 - **The VIX gate is not clearly better than no tranche purchases.** The reference wins on a fresh start, ties in training and loses when holdings carry forward.
 - **The comparison is not isolated.** The QLD sleeve still follows the composite and spends the same cash.
-- **Worth a separate look later:** tranche and reinvestment buys go to the half of the core that is not trend-guarded, so the guarded share shrinks over time. Alternative exit and guard rules were tried in this session and removed. They are not in the repo.
+- **The engine starts at 52.5% QQQ and 17.5% SPY,** because the trend-guarded half of the core is all QQQ. The separate sleeve in section 11 starts at 35% each, so the two are not directly comparable.
+- **QLD's take-profit is tested on the close it sells at.** Testing the previous close instead changes no Sharpe in the reference, 10-day, composite and no-tranche runs by more than 0.0002, so shared `strategy.py` is unchanged. Cash earns an approximate annual-average T-bill rate, not the daily rate.
+- **Worth a separate look later:** tranche and reinvestment buys go to the half of the core that is not trend-guarded, so the guarded share shrinks over time. Alternative guard rules were tried in this session and removed. They are not in the repo.
 
-## 11. What we checked and changed
+## 11. Entry and exit tests on top of the VIX trigger
+
+**Result: nothing passed our rule against buying at the trigger and holding 63 sessions.** Ideas E1 to E6 and X1 to X5 came from the team draft. We added E1v, E7, X6 and X7.
+
+**Method.** The trigger is the first VIX close ≥24 of an episode. A new episode needs VIX to fall back to its expanding median (Cboe history from 1990). That gives 28 episodes since 2008: 16 training and 12 later. Every signal fills at the next close, costs 5 bp a side, and idle cash earns T-bills. Everything is sold 63 sessions after the purchase. The two sensitivity triggers reset on their own gauge: composite at its median, or VIX rank at 50%. We chose on 2008–2019 only, and a rule had to have a positive mean difference, be better in at least 60% of episodes, and stay positive without its best episode. Each stage's rules were coded and tested before its results were read, and the rule definitions did not change afterwards. Exits were written after the entry results were known. Entries and exits were rebuilt with separate code and matched.
+
+### Entry: the first order
+
+Baseline: buy all of one tranche at the trigger. Differences are in points of that order.
+
+| Rule | Training difference | Better in training | Without best episode | Later difference | Mean worst mark (baseline) | Order spent, training |
+|---|---:|---:|---:|---:|---:|---:|
+| E4 wait for VIX easing 5d | −1.50 | 44% | −2.00 | −1.54 | −3.8% (−6.1%) | 75% |
+| E5 half now, half on VIX easing 5d | −0.75 | 44% | −1.00 | −0.77 | −4.7% (−6.1%) | 88% |
+| E6 half now, half after 5 sessions unless calm | −0.30 | 50% | −0.80 | −0.11 | −4.8% (−6.1%) | 91% |
+| E6u half now, half after 5 sessions always | +0.07 | 50% | −0.40 | −0.48 | −5.3% (−6.1%) | 100% |
+| E4 wait for VXN 15% below 10d high | −0.45 | 50% | −1.40 | −1.02 | −3.6% (−6.1%) | 75% |
+| E5 half now, half on VXN 15% below 10d high | −0.23 | 50% | −0.70 | −0.51 | −4.6% (−6.1%) | 88% |
+| E4 wait for QQQ 5-close breakout | −4.21 | 25% | −4.84 | −4.28 | −3.6% (−6.1%) | 56% |
+| E5 half now, half on QQQ 5-close breakout | −2.11 | 25% | −2.42 | −2.14 | −4.7% (−6.1%) | 78% |
+| E4 wait for VIX/VIX3M back below 1 | −3.50 | 7% | −4.18 | −4.29 | −4.8% (−5.8%) | 80% |
+| E5 half now, half on VIX/VIX3M back below 1 | −1.75 | 7% | −2.09 | −2.14 | −5.2% (−5.8%) | 90% |
+
+- **Waiting for a signal lost in every version tested with this trigger.** The full-order waits (E4) lost more than the halves (E5).
+- **Reading VIX did not beat a plain 5-session delay.** E6 follows the draft and cancels its second half when fear calms, which skipped 3 of 16 training and 2 of 12 later buys. E6u always buys it, so the delay is the only difference from E0. E5 (VIX easing) trails E6 by 0.45 and 0.66 points, and E6u by 0.82 and 0.29. A difference of about 1.5 to 1.7 points would be needed to detect it reliably.
+- **E6u's +0.07 in training does not pass.** It is better in half the episodes, negative without its best one, and −0.48 later.
+- **Splitting lowers pain.** The average worst mark improves, at the cost of return.
+
+### Entry: the four-tranche reserve
+
+Two measures, because they answer different questions. **Profit** is what the investor earns on the whole reserve, with T-bill interest on unspent cash. It rewards buying more, because QQQ rises. **Timing value** is profit beyond buying on an average date and holding as long, and it decides. Baseline: the whole reserve at the trigger, which earned 5.50% in training and 5.64% later.
+
+| Rule | Timing value, training difference | Better in training | Without best episode | Timing value, later difference | Profit on the reserve, training / later | Reserve spent, training / later |
+|---|---:|---:|---:|---:|---:|---:|
+| R0 whole reserve at the trigger | — | — | — | — | 5.50% / 5.64% | 100% / 100% |
+| R1 first tranche only | −1.26 | 44% | −1.94 | −0.24 | 1.53% / 1.93% | 25% / 25% |
+| E1 price ladder (8%) | −0.69 | 50% | −1.36 | +0.63 | 2.27% / 3.12% | 34% / 38% |
+| E1c the same, cancelled when calm | −0.85 | 50% | −1.53 | +0.21 | 2.06% / 2.59% | 31% / 31% |
+| E1v price ladder (VIX-scaled) | −0.81 | 44% | −1.49 | +0.10 | 2.10% / 2.51% | 33% / 33% |
+| E1vc the same, cancelled when calm | −0.97 | 44% | −1.66 | −0.23 | 1.90% / 2.08% | 30% / 29% |
+| E3 every 10 sessions while VIX is high | −0.65 | 44% | −1.21 | +2.24 | 2.60% / 5.12% | 42% / 48% |
+| E3c the same, cancelled when calm | −0.65 | 44% | −1.21 | +1.38 | 2.60% / 4.16% | 42% / 44% |
+| E7 late tranche on 20-day easing | −0.79 | 50% | −1.43 | +0.51 | 2.14% / 2.90% | 31% / 33% |
+
+- **None passes on either measure.** Every plan earned less than spending the whole reserve at the trigger, in both periods. E3's later timing value is the best of them and still earned 5.12% against 5.64%.
+- **The draft did not say what ends E1 and E3.** As drafted they can buy again after fear has calmed and a new episode has begun. The March 6, 2025 plan bought on April 7, the same close as the April 3 episode's own purchase. The E1c, E1vc and E3c rows cancel what is left at the first calm close, which lowers the later results.
+- **Against buying only the first tranche,** the later tranches look good in training: where they acted, E1 was better in 5 of 6 episodes, E1v 5 of 5, E3 5 of 7 and E7 4 of 4. The selection rule counts a tie as not better, so it could not have passed them: they act in fewer than half the episodes. Counting only those episodes they would pass, on 4 to 7 episodes. Spending the whole reserve at the trigger still had more timing value in training.
+
+In the draft, the 20-day easing rule was a possible confirmation. It fires in 8 of the 28 episodes as a late tranche and is too slow for a 10-session confirmation.
+
+### Exit
+
+The whole order is bought at the trigger. Baseline X1 holds to the deadline.
+
+| Rule | Training difference | Better in training | Without best episode | Later difference | Time in QQQ, training | Mean worst mark (baseline) |
+|---|---:|---:|---:|---:|---:|---:|
+| X2 VIX back to its median | −2.82 | 25% | −3.47 | −0.88 | 40% | −4.6% (−6.1%) |
+| X3a price breakdown, armed by a recovery | −3.49 | 38% | −4.19 | +0.16 | 38% | −3.8% (−6.1%) |
+| X4a half on normalization, half on breakdown | −3.15 | 31% | −3.77 | −0.36 | 39% | −4.1% (−6.1%) |
+| X5a half on normalization, all on breakdown | −4.18 | 31% | −4.93 | −0.71 | 29% | −3.7% (−6.1%) |
+| X6 VIX 40% below its episode peak | −3.73 | 12% | −4.35 | −3.48 | 49% | −6.0% (−6.1%) |
+| X7 thirds over time | −2.40 | 25% | −2.80 | −1.73 | 67% | −5.2% (−6.1%) |
+| X3 price breakdown, as drafted | −6.40 | 25% | −7.30 | −4.49 | 6% | −2.1% (−6.1%) |
+
+- **X3 as drafted sells near the bottom.** QQQ breaks its 10-session low a median of 4 sessions after the trigger, before or at the −8% ladder rung every time that rung was reached (12 of 12). X3a, X4a and X5a require QQQ to close above its prior 5 closes first.
+- **Every exit costs return in training.** They also cut time in QQQ and the worst marks.
+- **X4a against X5a.** They differ only when price breaks down before fear fades, in 7 training and 3 later episodes. Selling the second half there (X5a) lost 2.36 points in training and 1.38 later, so holding the rest was better. Later is three episodes.
+- **At 126 sessions the exits still lose to holding in training.** Later X3a is +0.16 points at 63 sessions and −5.55 at 126.
+
+### Holding 126 sessions against 63
+
+Both sides buy the whole order at the trigger. One sells after 63 sessions and earns T-bills to session 126. Only episodes with 126 sessions of outcome count (15 training, 12 later).
+
+| Measure | Training difference | Better in training | Without best episode | 90% interval, training | Later difference | Later without best |
+|---|---:|---:|---:|---:|---:|---:|
+| Profit | +0.61 | 73% | −0.32 | −4.12 to +4.94 | +5.91 | +4.13 |
+| Timing value | −3.19 | 33% | −4.14 | −7.95 to +1.17 | +0.93 | −0.80 |
+
+- **Holding longer does not pass.** In training the extra profit disappears without the best episode. Mean worst mark goes from −6.5% to −9.4%.
+- **Most of the later gain is an extra quarter in stocks.** Timing value, which takes out the average return for the holding length, is +0.93 later and −0.80 without its best episode.
+- **The sensitivity triggers differ.** With composite ≥80th and VIX rank ≥80% + VIX ≥20, holding 126 sessions passes on both measures in training (timing value +1.54 and +2.58). Later, timing value is +3.09 on 5 episodes, negative without the best, and −2.31 on 17; profit is +8.01 and +2.63. We did not choose a holding period from this.
+
+### Funded check
+
+A 70% QQQ/SPY buy-and-hold core and 30% T-bills. Each trigger moves a share of the account into QQQ, no more than the cash left. No trend guard, no QLD. `strategy.py` is unchanged. The matched account holds the sleeve's average QQQ weight all the time.
+
+| Account | Share per trigger | Sharpe, training | Sharpe, later | Max drawdown, training / later | Later Sharpe minus exposure-matched static (90% interval) |
+|---|---:|---:|---:|---:|---:|
+| Static 70/30, no trades | — | 0.671 | 0.712 | −33.7% / −22.8% | — |
+| X1 hold to the deadline | 7.5% | 0.673 | 0.703 | −34.3% / −24.1% | −0.011 (−0.046 to +0.027) |
+| X1 hold to the deadline | 30.0% | 0.657 | 0.724 | −36.1% / −26.2% | +0.006 (−0.087 to +0.118) |
+
+The sleeve adds nothing measurable: the intervals include zero. A 7.5% tranche averages about 2.5% to 3.4% of the account. Other exits are in the dashboard and were not chosen. The intervals use the same Sharpe formula as the reported Sharpe.
+
+### What we would not repeat
+
+With the composite trigger, spending the whole reserve at the trigger passed the rule against buying only the first tranche. That is the baseline we already use, on a sensitivity trigger.
+
+Tested and rejected here: every wait, split, ladder and exit above, with composite ≥80th and VIX rank ≥80% + VIX ≥20 as alternative triggers. Not tested: 25% of remaining cash (E2), composite ≥90th and VIX ≥30, for lack of episodes.
+
+## 12. Every VIX signal as the entry point
+
+**Result: no signal is reliably better than buying on an average date, and none beats buying at VIX ≥24 under our rule.** Section 11 used VIX ≥24 alone as the entry. Here each earlier signal is the entry: four rank choices (none, 252, 504, 1,260 days at ≥80%) × four easing choices (none, 5, 10, 20 days) × VIX ≥24 or no floor, plus other floors, term structure, a breakout, the intraday high and the intraday spike that fades. That is 42 signals. Easing with no floor and no rank has no fear condition, so it is not an entry.
+
+**Method.** Each episode buys once, at the close after the signal's first close, and holds 63 sessions. A new episode needs the signal's own gauge to calm: VIX at its expanding median when the rule has a floor, otherwise its rank at or below 50%. The dashboard shows which reset each signal uses. That is why VIX ≥20 + 504d rank ≥80% has 28 training episodes here and 13 in section 11, where the same entry condition resets on its rank. Excess is the return beyond the average 63-session return of dates with that signal's data, after costs. This only matters for the two VIX3M signals, whose data start in September 2009. Rules were fixed in code before results. 2008–2019 decides, with the same rule as section 11 (positive mean, better in at least 60% of episodes, positive without the best episode) and at least 8 episodes. We rebuilt seven signals' episodes separately and they matched.
+
+### Luck check
+
+26 signals have at least 8 training episodes and 11 pass the rule. That sounds like a lot. When every signal's dates are slid together by a random amount, which keeps how they overlap and cluster but removes any information, an average of 7.3 pass and 5% of slides give 21 or more. The chance of 11 or more is 27%. The chance that the best of the 26 looks as good as the best we saw is 72%. Dates that slide to before a signal's data exist are left out.
+
+### All signals
+
+Numbers are points of return. "Too few" means fewer than 8 training episodes. The study's other episode definition (21 quiet sessions) is a robustness check, added after the first results.
+
+| Signal | Training excess (episodes) | Passes | Later excess (episodes) | Training excess, 21-quiet-session episodes | Waiting for it vs buying at VIX ≥24, training (fired / episodes) |
+|---|---:|---|---:|---:|---:|
+| VIX ≥ 24 + 504d rank ≥ 80% + easing 20d | +2.6 (4) | too few | +8.9 (4) | +2.6 (4) | −3.2 (3/15) |
+| VIX ≥ 24 + VIX at or below VIX3M | +2.5 (7) | too few | +0.4 (8) | +2.5 (7) | −3.0 (6/14) |
+| VIX ≥ 24 + 1260d rank ≥ 80% + easing 20d | +2.1 (5) | too few | +8.1 (3) | +3.4 (6) | −3.0 (4/15) |
+| VIX ≥ 24 + easing 20d | +2.1 (5) | too few | +9.2 (4) | +2.1 (5) | −3.0 (4/15) |
+| VIX ≥ 24 + 252d rank ≥ 80% + easing 20d | +2.1 (5) | too few | +9.2 (4) | +2.1 (5) | −3.0 (4/15) |
+| VIX ≥ 24 + 504d rank ≥ 50% + easing 20d | +2.1 (5) | too few | +9.2 (4) | +3.4 (6) | −3.0 (4/15) |
+| VIX ≥ 26 | +1.9 (11) | Yes | +2.0 (10) | −0.3 (14) | −1.0 (11/15) |
+| 1260d rank ≥ 80% + easing 20d | +1.9 (8) | Yes | +8.1 (3) | −0.3 (12) | — |
+| VIX ≥ 24 | +1.7 (16) | No | +0.3 (12) | −0.9 (16) | — |
+| VIX ≥ 24 + 1260d rank ≥ 80% | +1.7 (15) | Yes | +0.8 (12) | −0.3 (16) | −0.4 (14/15) |
+| VIX ≥ 24 + VIX above VIX3M | +1.6 (15) | No | +0.0 (10) | +1.7 (14) | −0.7 (13/14) |
+| VIX ≥ 24 + easing 1d | +1.6 (12) | Yes | +0.3 (9) | −2.0 (14) | −0.9 (12/15) |
+| 504d rank ≥ 90% | +1.5 (12) | Yes | −2.0 (11) | −2.8 (16) | — |
+| 252d rank ≥ 80% + easing 20d | +1.5 (10) | Yes | +2.4 (6) | +1.6 (9) | — |
+| VIX ≥ 22 | +1.4 (28) | Yes | +0.3 (17) | −0.9 (19) | — |
+| VIX high ≥ 24 | +1.2 (20) | Yes | +0.2 (15) | −1.3 (17) | +0.0 (15/15) |
+| 504d rank ≥ 80% + easing 5d | +1.0 (10) | Yes | +1.9 (10) | −5.4 (13) | — |
+| VIX traded at 24 and closed below | +1.0 (18) | Yes | +0.2 (15) | −0.7 (21) | — |
+| 1260d rank ≥ 80% | +1.0 (19) | Yes | +2.0 (12) | +2.1 (16) | — |
+| 1260d rank ≥ 80% + easing 10d | +0.8 (7) | too few | +10.3 (5) | −2.3 (9) | — |
+| 504d rank ≥ 80% + easing 10d | +0.6 (7) | too few | +5.3 (7) | −4.2 (10) | — |
+| VIX ≥ 24 + 252d rank ≥ 80% + easing 10d | +0.6 (7) | too few | +11.5 (4) | +1.5 (8) | −2.7 (6/15) |
+| VIX ≥ 24 + 504d rank ≥ 80% | +0.5 (14) | No | −0.4 (10) | −2.4 (14) | −1.9 (13/15) |
+| VIX ≥ 20 | +0.3 (52) | No | +1.9 (27) | −0.0 (19) | — |
+| VIX ≥ 20 + 504d rank ≥ 80% | +0.2 (28) | No | +0.8 (18) | −3.4 (16) | — |
+| 504d rank ≥ 80% + easing 20d | +0.1 (8) | No | +4.2 (10) | −0.6 (11) | — |
+| VIX ≥ 30 | +0.0 (6) | too few | +5.6 (6) | +2.2 (9) | −1.5 (5/15) |
+| VIX ≥ 24 + easing 5d | −0.4 (8) | No | +12.0 (5) | −3.5 (10) | −3.4 (8/15) |
+| 252d rank ≥ 80% | −0.6 (35) | No | −5.1 (21) | −0.3 (32) | — |
+| VIX ≥ 24 + easing 3d | −0.8 (9) | No | +0.6 (6) | −3.3 (11) | −3.4 (9/15) |
+| VIX ≥ 24 + 252d rank ≥ 80% | −0.8 (14) | No | −0.5 (11) | −1.1 (16) | −3.1 (13/15) |
+| 252d rank ≥ 80% + easing 10d | −0.9 (9) | No | +3.1 (7) | +0.0 (10) | — |
+| 504d rank ≥ 80% | −1.1 (18) | No | −4.1 (19) | −4.3 (18) | — |
+| 1260d rank ≥ 80% + easing 5d | −1.1 (9) | No | +8.7 (6) | −3.7 (10) | — |
+| VIX ≥ 24 + 504d rank ≥ 80% + easing 5d | −1.2 (6) | too few | +12.8 (5) | −4.7 (8) | −4.1 (6/15) |
+| VIX ≥ 24 + easing 10d | −1.2 (8) | No | +11.5 (4) | −1.6 (11) | −3.8 (8/15) |
+| VIX ≥ 24 + 1260d rank ≥ 80% + easing 5d | −2.2 (7) | too few | +13.9 (4) | −4.9 (10) | −4.4 (7/15) |
+| VIX ≥ 24 + 252d rank ≥ 80% + easing 5d | −2.3 (7) | too few | +12.0 (5) | −1.7 (8) | −2.4 (6/15) |
+| VIX ≥ 24 + 504d rank ≥ 80% + easing 10d | −2.3 (6) | too few | +12.1 (4) | −2.4 (8) | −4.6 (6/15) |
+| 252d rank ≥ 80% + easing 5d | −2.4 (14) | No | +2.2 (8) | −2.4 (14) | — |
+| VIX ≥ 24 + 1260d rank ≥ 80% + easing 10d | −2.6 (7) | too few | +11.5 (4) | −2.6 (9) | −4.6 (7/15) |
+| VIX ≥ 24 + easing 20d + QQQ breakout | −3.7 (4) | too few | +8.8 (3) | +2.0 (5) | −4.9 (3/15) |
+
+- **None of the 11 that pass repeat it later.** Of those, 0 meet all three conditions in 2020–2026.
+- **The pass list depends on the episode definition.** With 21 quiet sessions, 2 signals pass. VIX ≥24 itself goes from +1.7 to −0.9 points.
+- **Our 20-day easing reference has 5 training and 4 later episodes here**, too few to judge. Its large spread in the earlier sections comes from counting every signal day. Counting each episode's first signal, it is +2.1 points.
+- **Easing on VIX ≥24 disagrees across samples.** In training VIX ≥24 + easing 5d is −0.4 and 10d is −1.2. Later they are +12.0 and +11.5, but on 5 and 4 episodes. That pattern is worth watching and is not evidence.
+- **Waiting for another signal inside a VIX ≥24 episode cost money in training for every rule that changed the entry.** It often never fires, which leaves the money in T-bills. The comparison uses a common 127-session horizon. Later, easing 5d and 10d rules are about +0.4 to +2.3 points, over 4 or 5 fired episodes of 12.
+
+### Exits and the funded sleeve on each signal
+
+None of the 252 training combinations of signal and exit (X2, X3a, X4a, X5a, X6, X7) beats holding 63 sessions under the rule. 96 of them could not pass, because their signal has fewer than 8 training episodes. X2 uses each signal's own reset. In the funded sleeve with 7.5% per signal, the Sharpe difference from a static account with the same average exposure runs from −0.019 to +0.015 in training and −0.075 to +0.029 later, and the two periods' rankings are unrelated (correlation −0.13). The best later accounts add about 0.02 to 0.03.
+
+## 13. What we checked and changed
 
 **Confirmed correct:** next-close entry and 63-session hold; training and later split; rank, easing, breakout, term-structure and credit-lag formulas; grid selection; ZIP match; and dashboard calculations, which agree with Python on every preset. We rebuilt eight rules from raw data with separate code and matched the results.
 
@@ -343,29 +523,45 @@ Outside the current focus. These results come from using a VIX rule as the gate 
 - The funded controls were run and left out. The advantage over no-tranche disappears when holdings carry forward.
 - 1,188 configurations are 1,116 distinct rules.
 
+**Corrected after an implementation review:**
+
+- The VIX3M signals were compared with an average date from before VIX3M existed. Their training excess falls from +2.1 to +1.6 (above VIX3M) and from +3.0 to +2.5 (at or below). No signal changes between passing and not.
+- E6 cancels on calm, as drafted. The uncancelled control E6u was added.
+- Cancelled versions of E1, E1v and E3 were added, and profit on the reserve is shown next to timing value.
+- Holding 126 sessions is compared directly with selling at 63.
+- The bootstrap and the reported Sharpe now share a formula. No figure in this file changes.
+- `run_tactical.py` and `run_triggers.py` run without the optional VIX3M file.
+- The composite first-tranche sentence in section 11 was backwards.
+
 **Added:** episode-weighted, largest-episode and training columns in the outcome table; composite and no-tranche controls; carried-forward runs; signal frequency and gaps; episode entries and 63-session outcomes; a funded trade list; and tests.
 
-## 12. Open questions on the indicator
+## 14. Open questions on the indicator
 
 1. Which easing lookback: 5, 10 or 20 sessions? Training and later disagree.
 2. Is rank useful, or is its later result one regime? It needs a test that the training period does not contradict.
 3. Does VIX above VIX3M add anything beyond VIX level, given that the sign flips?
 4. Constituent breadth needs point-in-time membership data.
-5. Nothing here has been tested on data we had not already seen.
+5. All results cover 2008 onward, which has no bear market as long as 2000–2002. Earlier data only warms up the indicators. Pre-2008 outcomes were viewed once and are out of scope, so they are not a fresh holdout. Only new data can confirm a rule.
 
-## 13. Files and reproduction
+## 15. Files and reproduction
 
 | File | Role |
 |---|---|
 | `research/vix_entry/indicators.py` | daily features and the entry gate |
 | `research/vix_entry/analyze_vix.py` | grid, experiments, outcome table, funded runs, dashboard export |
 | `research/vix_entry/trades.py` | signal frequency, entries and outcomes by episode |
-| `research/vix_entry/summary_tables.py` | prints most tables in this document |
+| `research/vix_entry/summary_tables.py` | prints most tables in sections 3 to 9 |
+| `research/vix_entry/tactical.py` | entry and exit rules, episode settlement, selection rule |
+| `research/vix_entry/tactical_portfolio.py` | funded sleeve outside the v2 engine |
+| `research/vix_entry/run_tactical.py` | runs the tests and writes `tactical_*.csv` |
+| `research/vix_entry/run_triggers.py` | every signal as the entry, writes `trigger_*.csv` |
 | `research/vix_entry/dashboard.html.in` | dashboard template |
-| `tests/test_vix_entry.py` | tests |
+| `tests/test_vix_entry.py`, `tests/test_vix_tactical.py`, `tests/test_vix_triggers.py` | tests |
 | `results/vix_entry/` | CSVs and dashboard (gitignored) |
 
 ```sh
+python research/vix_entry/run_tactical.py
+python research/vix_entry/run_triggers.py
 python research/vix_entry/analyze_vix.py
 python research/vix_entry/summary_tables.py
 ```

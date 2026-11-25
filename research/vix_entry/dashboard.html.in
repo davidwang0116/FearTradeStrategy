@@ -54,8 +54,14 @@
   <header>
     <h1>VIX entry research</h1>
     <p id="coverage"></p>
-    <nav aria-label="Research sections"><a href="#outcomes">Outcome table</a><a href="#frequency">Signal frequency</a><a href="#entries">Entries and exits</a><a href="#compare">Compare rules</a><a href="#grid">Parameter grid</a><a href="#episodes">Recovery episodes</a><a href="#portfolio">Funded backtests</a><a href="#ledger">Funded trades</a></nav>
+    <nav aria-label="Research sections"><a href="#episode-first">One purchase per episode</a><a href="#outcomes">Outcome table</a><a href="#frequency">Signal frequency</a><a href="#entries">Entries and exits</a><a href="#tactical">Entry and exit tests</a><a href="#signals">Entry signals compared</a><a href="#compare">Compare rules</a><a href="#grid">Parameter grid</a><a href="#episodes">Recovery episodes</a><a href="#portfolio">Funded backtests</a><a href="#ledger">Funded trades</a></nav>
   </header>
+
+  <section class="panel" id="episode-first">
+    <h2>One purchase per episode</h2>
+    <p class="muted">What an investor gets from buying each episode's first signal once and holding 63 sessions, after costs. Excess is points above the average date in the same sample, and Better is the share of episodes above it. Scroll across for returns. The outcome table below counts every signal day, so one long episode can count many times. The two definitions differ in when a new episode may start.</p>
+    <div class="scroll"><table id="episode-first-table"></table></div>
+  </section>
 
   <section class="panel" id="outcomes">
     <h2>Entry rule outcomes</h2>
@@ -82,6 +88,36 @@
     <div class="controls"><label>Rule<select id="entries-rule"></select></label><label>Sample<select id="entries-period"></select></label><button id="entries-download">Download entries CSV</button></div>
     <p id="entries-summary"></p>
     <div class="scroll"><table id="entries-table"></table></div>
+  </section>
+
+  <section class="panel" id="tactical">
+    <h2>Entry and exit tests</h2>
+    <p class="muted">Each test starts at a fear trigger and compares paired results episode by episode. Rules were chosen on 2008–2019 only. A rule passes if its mean difference from the baseline is positive, it is better in at least 60% of episodes, and it stays positive without its best episode. Later is secondary.</p>
+    <div class="controls">
+      <label>Test<select id="tactical-test"><option value="first order">Entry: first order</option><option value="reserve">Entry: four-tranche reserve, timing value</option><option value="reserve profit">Entry: four-tranche reserve, profit</option><option value="exit">Exit</option><option value="hold length">Holding 126 sessions against 63</option><option value="portfolio">Funded sleeve</option></select></label>
+      <label>Trigger<select id="tactical-trigger"></select></label>
+      <label>Window<select id="tactical-window"><option value="63">63 sessions (decides)</option><option value="126">126 sessions</option></select></label>
+    </div>
+    <p class="muted" id="tactical-note"></p>
+    <div class="scroll"><table id="tactical-table"></table></div>
+    <h3>Results by episode, VIX ≥24, 63 sessions</h3>
+    <div class="controls"><label>Rule<select id="tactical-rule"></select></label><button id="tactical-download">Download episodes CSV</button></div>
+    <div class="scroll"><table id="tactical-episodes"></table></div>
+  </section>
+
+  <section class="panel" id="signals">
+    <h2>Entry signals compared</h2>
+    <p class="muted">Each VIX signal used as the entry point, buying once at its first close in an episode and holding 63 sessions. Excess is the return beyond the average 63-session return of dates with that signal's data. 2008–2019 decides. A rule needs 8 training episodes to be judged.</p>
+    <p class="notice" id="signals-family"></p>
+    <div class="controls">
+      <label>Comparison<select id="signals-view"><option value="standalone">Against an average date</option><option value="paired">Against buying at VIX ≥24</option><option value="exits">Exit rules, training differences</option><option value="portfolio">Funded sleeve (7.5% per signal)</option></select></label>
+      <label>Episode definition<select id="signals-definition"><option value="trigger_standalone">Re-arm when the gauge calms (decides)</option><option value="trigger_standalone_quiet">21 quiet sessions (robustness)</option></select></label>
+      <label>Sort by<select id="signals-sort"><option value="train">Training</option><option value="later">Later</option></select></label>
+    </div>
+    <div class="scroll outcome-scroll"><table id="signals-table"></table></div>
+    <h3>Episodes of one signal</h3>
+    <div class="controls"><label>Signal<select id="signals-rule"></select></label></div>
+    <div class="scroll"><table id="signals-episodes"></table></div>
   </section>
 
   <section class="panel" id="compare">
@@ -371,6 +407,106 @@ function renderEntries() {
 for (const id of ["entries-rule","entries-period"]) el(id).addEventListener("change",renderEntries);
 el("entries-download").addEventListener("click",() => saveRows("vix_episode_entries.csv",entryRows()));
 
+const tactical = data.tactical;
+const tacticalPairs = [...(tactical.entry_pairs || []),...(tactical.exit_pairs || [])];
+el("tactical-trigger").innerHTML = options([...new Set(tacticalPairs.map(row => row.trigger))].map(name => [name,name]));
+const tacticalEpisodes = tactical.episodes || [];
+el("tactical-rule").innerHTML = options([...new Set(tacticalEpisodes.map(row => row.rule))].map(name => [name,name]));
+const tacticalNotes = {
+  "first order": "One tranche, bought in full by the baseline at the trigger. Differences are in profit after costs, as a share of the order, with T-bill interest on idle cash.",
+  "reserve profit": "The same plans, measured by what the investor earns on the whole reserve, with T-bill interest on unspent cash. This rewards buying more, so read it beside timing value.",
+  "hold length": "Both sides buy the whole order at the trigger. One sells after 63 sessions and earns T-bills to session 126. Timing value is measured against an average-date purchase held as long, so it takes out the extra quarter in stocks.",
+  reserve: "Four tranches, with the whole reserve at the trigger as the baseline. Plans that buy more earn more when QQQ rises, so the measure is timing value: profit beyond buying on an average date and holding as long.",
+  exit: "The whole order is bought at the trigger. The baseline holds to the deadline. X3 as drafted is listed only to show its conflict with the price ladder.",
+  portfolio: "A 70% QQQ/SPY core and 30% T-bill reserve, without the trend guard or QLD. Only X1 was selected. The other exits are described, not chosen. Matched compares with a static account that holds the sleeve's average QQQ weight.",
+};
+function renderTactical() {
+  const test = el("tactical-test").value, trigger = el("tactical-trigger").value, window = +el("tactical-window").value;
+  el("tactical-note").textContent = tacticalNotes[test];
+  el("tactical-trigger").parentElement.hidden = test === "portfolio";
+  el("tactical-window").parentElement.hidden = test === "portfolio" || test === "hold length";
+  if (test === "portfolio") return table("tactical-table", ["Period","Rule","Share per trigger","Sharpe","Minus static","Minus matched static","90% interval vs matched","CAGR","Max drawdown","Average equity","Average QQQ sleeve","Reserve at episode lows","Lots","Lots cut by cash"],
+    (tactical.portfolio || []).map(row => [row.period,row.rule,pct(row.size),sharpe(row.sharpe),sharpe(row.sharpe_minus_static),sharpe(row.sharpe_minus_matched),
+      row.sharpe_minus_matched_low == null ? "—" : sharpe(row.sharpe_minus_matched_low) + " to " + sharpe(row.sharpe_minus_matched_high),pct(row.cagr),pct(row.max_drawdown),pct(row.average_equity),pct(row.average_tactical),pct(row.reserve_at_episode_lows),num(row.lots),num(row.short_of_cash)]), "Run run_tactical.py first");
+  const group = test === "exit" ? tactical.exit_pairs : test === "hold length" ? tactical.hold_length : tactical.entry_pairs;
+  const reserve = test.startsWith("reserve"), metric = test === "reserve" ? "timing_value" : test === "reserve profit" ? "pnl" : null;
+  const rows = (group || []).filter(row => row.trigger === trigger && (test === "hold length" || row.window === window)
+    && row.group === (reserve ? "reserve" : test) && (!metric || row.metric === metric));
+  const pairs = [...new Map(rows.map(row => [[row.baseline,row.rule,row.metric].join("|"),row])).values()];
+  // A plan that places no extra order ties with its baseline, and a tie is not "better".
+  const acted = row => row.n == null ? "—" : `${Math.round(row.win_share * row.n)} of ${row.n - row.ties}`;
+  table("tactical-table", ["Rule","Baseline","Measure","Training difference","Training better","Better where it differed","Training without best","90% interval","Detectable","Passes","Later difference","Later better","Training profit (baseline)","Later profit (baseline)","Training mean worst mark",...(reserve ? ["Reserve spent (training, later)"] : []),"Episodes (training, later)"],
+    pairs.map(({baseline,rule,metric: measure}) => {
+      const one = period => rows.find(row => row.baseline === baseline && row.rule === rule && row.metric === measure && row.period === period) || {};
+      const train = one("training"), after = one("later");
+      return [rule,baseline,measure === "pnl" ? "Profit" : "Timing value",spread(train.difference),pct(train.win_share),acted(train),spread(train.without_best),
+        train.low90 == null ? "—" : spread(train.low90) + " to " + spread(train.high90),spread(train.detectable),train.passes === true ? "Yes" : "No",
+        spread(after.difference),pct(after.win_share),`${pct(train.mean_pnl)} (${pct(train.baseline_pnl)})`,`${pct(after.mean_pnl)} (${pct(after.baseline_pnl)})`,pct(train.worst_mark),
+        ...(reserve ? [`${pct(train.deployed)}, ${pct(after.deployed)}`] : []),`${num(train.n)}, ${num(after.n)}`];
+    }), "Run run_tactical.py first");
+}
+function renderTacticalEpisodes() {
+  const rows = tacticalEpisodes.filter(row => row.rule === el("tactical-rule").value);
+  table("tactical-episodes", ["Trigger","Period","VIX","Fills or sales","Profit","Worst mark","Timing value","First exit signal"],
+    rows.map(row => [row.trigger_date,row.period,decimal(row.vix),row.actions || "—",pct(row.pnl),pct(row.worst_mark),pct(row.timing_value),date(row.first_signal)]), "Run run_tactical.py first");
+}
+for (const id of ["tactical-test","tactical-trigger","tactical-window"]) el(id).addEventListener("change",renderTactical);
+el("tactical-rule").addEventListener("change",renderTacticalEpisodes);
+el("tactical-download").addEventListener("click",() => saveRows("tactical_episodes.csv",tacticalEpisodes.filter(row => row.rule === el("tactical-rule").value)));
+
+const firstRules = ["VIX >= 24","VIX >= 24 + easing 5d","VIX >= 24 + easing 10d","VIX >= 24 + easing 20d","504d rank >= 80%"];
+table("episode-first-table", ["Signal","New episode needs","Training episodes","Training excess","Later episodes","Later excess","Better, training","Better, later","Training without best","Later without best","Training return","Later return"],
+  firstRules.flatMap(rule => [["trigger_standalone",null],["trigger_standalone_quiet","21 sessions without a signal"]].flatMap(([name,label]) => {
+    const rows = (tactical[name] || []).filter(row => row.rule === rule);
+    if (!rows.length) return [];
+    const t = rows.find(row => row.period === "training") || {}, l = rows.find(row => row.period === "later") || {};
+    return [[rule === "VIX >= 24 + easing 20d" ? rule + " (reference)" : rule,label || rows[0].reset,num(t.n),spread(t.difference),num(l.n),spread(l.difference),pct(t.win_share),pct(l.win_share),
+      spread(t.without_best),spread(l.without_best),pct(t.mean_pnl),pct(l.mean_pnl)]];
+  })), "Run run_triggers.py first");
+
+const signalEpisodes = tactical.trigger_episodes || [];
+el("signals-rule").innerHTML = options([...new Set(signalEpisodes.map(row => row.rule))].map(name => [name,name]));
+const signalFamily = (tactical.trigger_family || [])[0];
+el("signals-family").hidden = !signalFamily;
+if (signalFamily) el("signals-family").textContent = `${signalFamily.signals_tested} signals have enough training episodes. ${signalFamily.passes_observed} pass the rule. Luck alone gives about ${signalFamily.passes_by_luck_mean.toFixed(1)} on average (95th percentile ${signalFamily.passes_by_luck_95th.toFixed(0)}), and the chance of this many or more is ${pct(signalFamily.chance_of_this_many_passes)}. The chance that the best of ${signalFamily.signals_tested} signals looks at least this good is ${pct(signalFamily.chance_of_best)}.`;
+function renderSignals() {
+  const view = el("signals-view").value, sort = el("signals-sort").value;
+  el("signals-definition").parentElement.hidden = view !== "standalone";
+  const index = rows => { const out = {}; rows.forEach(row => { (out[row.rule] ??= {})[row.period] = row; }); return out; };
+  const key = row => sort === "train" ? row.training?.difference : row.later?.difference;
+  const ordered = grouped => Object.entries(grouped).sort((a,b) => (key(b[1]) ?? -9) - (key(a[1]) ?? -9));
+  if (view === "standalone") {
+    const grouped = index(tactical[el("signals-definition").value] || []);
+    return table("signals-table", ["Signal","New episode needs","Training episodes","Training excess","90% interval","Better","Without best","Single-signal luck p","Passes","Later episodes","Later excess","Later better","Later without best","Episodes / year (later)","Training return","Mean worst close"],
+      ordered(grouped).map(([name,row]) => { const t = row.training || {}, l = row.later || {};
+        return [name,el("signals-definition").value === "trigger_standalone" ? (t.reset || l.reset) : "21 sessions without a signal",num(t.n),spread(t.difference),t.low90 == null ? "—" : spread(t.low90) + " to " + spread(t.high90),pct(t.win_share),spread(t.without_best),
+          t.shift_p == null ? "—" : t.shift_p.toFixed(3),t.passes ? "Yes" : "No",num(l.n),spread(l.difference),pct(l.win_share),spread(l.without_best),decimal(l.per_year),pct(t.mean_pnl),pct(t.worst_mark)]; }), "Run run_triggers.py first");
+  }
+  if (view === "paired") {
+    const grouped = index(tactical.trigger_pairs || []);
+    return table("signals-table", ["Signal","Training episodes","Fired","Median wait","Training difference","90% interval","Better","Without best","Passes","Later episodes","Later fired","Later difference","Later better"],
+      ordered(grouped).map(([name,row]) => { const t = row.training || {}, l = row.later || {};
+        return [name,num(t.n),num(t.fired),num(t.median_wait),spread(t.difference),t.low90 == null ? "—" : spread(t.low90) + " to " + spread(t.high90),pct(t.win_share),spread(t.without_best),t.passes ? "Yes" : "No",num(l.n),num(l.fired),spread(l.difference),pct(l.win_share)]; }), "Run run_triggers.py first");
+  }
+  if (view === "exits") {
+    const rows = (tactical.trigger_exits || []).filter(row => row.period === "training"), exits = [...new Set(rows.map(row => row.exit))];
+    return table("signals-table", ["Signal","Episodes",...exits], [...new Set(rows.map(row => row.rule))].map(name => {
+      const own = rows.filter(row => row.rule === name); return [name,num(own[0].n),...exits.map(e => spread(own.find(row => row.exit === e)?.difference))]; }), "Run run_triggers.py first");
+  }
+  const rows = (tactical.trigger_portfolio || []).filter(row => row.size < .1), grouped = {};
+  rows.forEach(row => { (grouped[row.rule] ??= {})[row.period] = row; });
+  table("signals-table", ["Signal","Sharpe, training","Minus matched static","Max drawdown, training","Sharpe, later","Minus matched static, later","Max drawdown, later","Lots, training / later"],
+    Object.entries(grouped).map(([name,row]) => { const t = row.training || {}, l = row.later || {};
+      return [name,sharpe(t.sharpe),sharpe(t.sharpe_minus_matched),pct(t.max_drawdown),sharpe(l.sharpe),sharpe(l.sharpe_minus_matched),pct(l.max_drawdown),`${num(t.lots)} / ${num(l.lots)}`]; }), "Run run_triggers.py first");
+}
+function renderSignalEpisodes() {
+  const rows = signalEpisodes.filter(row => row.rule === el("signals-rule").value);
+  table("signals-episodes", ["Signal","Period","Entry","VIX","Return","Beyond an average date","Worst close"],
+    rows.map(row => [row.signal_date,row.period,row.entry_date,decimal(row.vix),pct(row.pnl),spread(row.excess),pct(row.worst_mark)]), "Run run_triggers.py first");
+}
+for (const id of ["signals-view","signals-definition","signals-sort"]) el(id).addEventListener("change",renderSignals);
+el("signals-rule").addEventListener("change",renderSignalEpisodes);
+
 const ledgerRules = [...new Set(data.ledger.map(row => row.rule))];
 el("ledger-rule").innerHTML = options(ledgerRules.map(name => [name,name]));
 if (ledgerRules.includes(data.reference)) el("ledger-rule").value = data.reference;
@@ -544,7 +680,7 @@ el("download").addEventListener("click",() => {
   downloadCsv("vix_compared_signal_dates.csv", [keys,...selectedDates().map(row=>keys.map(key=>key === "match" ? matchName(row) : row[key]))]);
 });
 window.addEventListener("resize",plot);
-renderFrequency(); renderEntries(); renderLedger();
+renderTactical(); renderTacticalEpisodes(); renderSignals(); renderSignalEpisodes(); renderFrequency(); renderEntries(); renderLedger();
 preset(data.presets.findIndex(row=>row.name==="QQQ recovery"));
 episodes();
 </script>

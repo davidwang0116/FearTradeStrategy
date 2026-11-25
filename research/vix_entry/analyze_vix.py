@@ -388,6 +388,23 @@ def records(frame):
     return json.loads(frame.to_json(orient="records", date_format="iso", date_unit="s", double_precision=15))
 
 
+def tactical_results(output):
+    """Entry and exit tests written by run_tactical.py and run_triggers.py, when run into the same directory."""
+    read = lambda name: pd.read_csv(output / f"tactical_{name}.csv") if (output / f"tactical_{name}.csv").exists() else None
+    tables = {name: read(name) for name in ("entry_pairs", "exit_pairs", "exit_disputed", "hold_length", "portfolio")}
+    entry, leave = read("entry_ledger"), read("exit_ledger")
+    if entry is not None and leave is not None:
+        entry = entry.rename(columns={"fills": "actions"})
+        leave = leave.rename(columns={"sales": "actions"})
+        episodes = pd.concat([entry, leave], ignore_index=True)
+        tables["episodes"] = episodes[episodes["trigger"].eq("VIX >= 24") & episodes["window"].eq(63)]
+    for name in ("trigger_standalone", "trigger_standalone_quiet", "trigger_pairs", "trigger_exits", "trigger_portfolio",
+                 "trigger_family", "trigger_episodes"):
+        path = output / f"{name}.csv"
+        tables[name] = pd.read_csv(path) if path.exists() else None
+    return {name: records(table) for name, table in tables.items() if table is not None}
+
+
 def input_coverage(frame):
     columns = {
         "VIX close": "close", "VIX intraday high": "high", "QQQ five-day breakout": "breakout_5",
@@ -458,7 +475,7 @@ def main():
         outcomes=records(outputs["vix_outcome_summary"]), frequency=records(outputs["vix_signal_frequency"]),
         entries=records(outputs["vix_episode_entries"]),
         ledger=records(outputs["vix_portfolio_trades"]),
-        reference=describe_rule(BASELINE),
+        reference=describe_rule(BASELINE), tactical=tactical_results(args.output),
         presets=[dict(name=label, a=a, b=b) for label, a, b in EXPERIMENTS],
         filters=FILTERS, sources=SOURCES, split=args.split.strftime("%Y-%m-%d"),
         ranks=RANK_CUTOFFS, floors=FLOORS, windows=RANK_WINDOWS, lags=EASING_DAYS,

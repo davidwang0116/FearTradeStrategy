@@ -3,6 +3,8 @@
 From the repo root, use the existing Python environment with the dependencies in `requirements.txt`.
 
 ```sh
+python research/vix_entry/run_tactical.py   # optional, adds the entry and exit tests
+python research/vix_entry/run_triggers.py   # optional, tests every VIX signal as the entry
 python research/vix_entry/analyze_vix.py
 ```
 
@@ -14,7 +16,7 @@ See [SUMMARY.md](SUMMARY.md) for everything tested and what the results do and d
 
 ## Inputs
 
-The repo already supplies the QQQ/VIX panel and VIX OHLC. Keep the observations before training so the rolling features have history. The extra files below are optional and go in `data/raw/vix_entry/` by default. `--inputs` accepts another directory. The study excludes unavailable dates from both sides of a comparison.
+The repo already supplies the QQQ/VIX panel and VIX OHLC. Keep the observations before training so the rolling features have history. The extra files below are optional and go in `data/raw/vix_entry/` by default. `--inputs` accepts another directory in all three scripts. Without `vix3m.csv`, the rules that need it are left out. The study excludes unavailable dates from both sides of a comparison.
 
 | Local file | Input |
 |---|---|
@@ -33,3 +35,4 @@ For actual Nasdaq-100 breadth, pass `--constituents path/to/members_and_closes.c
 - Breadth, the equal-weight proxy, and credit use a five-session difference. Credit closes are lagged one QQQ session as a release-time assumption. Missing observations and their affected comparisons stay missing. Term structure compares the same day's VIX and VIX3M.
 - Funded comparisons reuse the repo's v2 QQQ/SPY core, trend guard, synthetic QLD and costs. Each pair and its controls start fresh on the same dates. Missing indicator days suspend core tranche entry for both sides. The carried runs instead start at the first shared training date and measure only the later period, so they keep the holdings and powder built up before the split. Rank rules by both, because the ordering against the controls can change. The no-tranche control keeps the starting core, reinvestment after sleeve exits, and the QLD sleeve, which follows the composite and spends the same cash as the tranches. The funded simulation ends by the last actual SPY close in the panel.
 - Frequency uses each rule's own data coverage. Gaps run between first signals of consecutive episodes. The longest stretch without a signal also counts the start and end of the sample. Spaced entries count back-to-back 63-session trades.
+- Entry and exit tests start at a fear trigger, pair every rule with a baseline on the same episodes, and choose on 2008–2019. Run `run_tactical.py` first: `analyze_vix.py` copies its `tactical_*.csv` files into the dashboard when they exist.

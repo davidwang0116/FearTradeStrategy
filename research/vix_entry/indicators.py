@@ -55,6 +55,14 @@ def constituent_breadth(path, sessions):
     return fraction, coverage
 
 
+def term_spread(vix, inputs):
+    """VIX minus VIX3M. All missing when the optional VIX3M file is absent."""
+    path = inputs / "vix3m.csv"
+    if not path.exists():
+        return pd.Series(float("nan"), index=vix.index)
+    return vix - read_daily(path, "DATE", "CLOSE", date_format="%m/%d/%Y").reindex(vix.index)
+
+
 def build_features(panel, inputs, vix_ohlc, constituents):
     features = panel[["vix"]].rename(columns={"vix": "close"}).copy()
     qqq = panel["qqq"]
@@ -67,9 +75,7 @@ def build_features(panel, inputs, vix_ohlc, constituents):
         prior_high = qqq.shift().rolling(days).max()
         features[f"breakout_{days}"] = qqq.gt(prior_high).where(prior_high.notna()).astype("boolean")
 
-    vix3m_path = inputs / "vix3m.csv"
-    term = (features["close"] - read_daily(vix3m_path, "DATE", "CLOSE", date_format="%m/%d/%Y")
-            .reindex(panel.index)) if vix3m_path.exists() else pd.Series(float("nan"), index=panel.index)
+    term = term_spread(features["close"], inputs)
     features["term_inverted"] = term.gt(0).where(term.notna()).astype("boolean")
     features["term_flat"] = term.le(0).where(term.notna()).astype("boolean")
 
