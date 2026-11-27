@@ -196,9 +196,15 @@ def chain_on(day, days=1):
     if df is None or df.empty:
         return pd.DataFrame()
     df = df.reset_index()
-    df["time"] = pd.to_datetime(df["time"]).dt.normalize()
+    # QC stamps a daily bar at its end time (the session close, or midnight after it); the session date is that
+    # timestamp minus one minute. Without this, a midnight stamp makes every exact-session audit come back empty.
+    df["time"] = (pd.to_datetime(df["time"]) - pd.Timedelta(minutes=1)).dt.normalize()
+    target = pd.Timestamp(day).normalize()
+    df = df[df["time"] >= target]
+    if df.empty:
+        return pd.DataFrame()
     first = df["time"].min()
-    if days == 1 and first != pd.Timestamp(day).normalize():
+    if days == 1 and first != target:
         return pd.DataFrame()
     df = df[df["time"] == first].copy()
     df["expiry"] = pd.to_datetime(df["expiry"])

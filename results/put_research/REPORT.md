@@ -134,3 +134,34 @@ The simulation preserves next-close execution, funded purchases, T-bill proceeds
 Prices for the whole-contract sizing experiment come from the public Yahoo Finance daily chart histories for QQQ and SPY, using the Close field. Cboe supplied SKEW and VIX3M. VIX3M is an S&P volatility proxy. The affordability of a particular listed QQQ put requires its actual ask. [Cboe VIX3M history](https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX3M_History.csv) · [Cboe SKEW history](https://cdn.cboe.com/api/global/us_indices/daily_prices/SKEW_History.csv)
 
 No QuantConnect cloud backtest or real-option fill validation was performed. The quote audit is in `qc/options_quote_audit.ipynb`. It requires QuantBook access to listed option history. The source branch records the US equity-options audit window as starting in 2012; 2008 remains model-only. The branch’s original annualized risk-free series and synthetic QLD returns are retained for comparability. Confirm the executable ask, stress bids, assignment and realized account sizing before adopting an overlay. [QuantConnect option history](https://www.quantconnect.com/docs/v2/writing-algorithms/datasets/algoseek/us-equity-options)
+
+## Checks ported from the options-put-hedge branch
+
+**Does the edge survive without each decline?** For every registered cell, the full-history Sharpe difference against the frozen hedge is recomputed with each of unhedged v2's seven declines (peak to recovery) left out in turn, at both whole-contract sizes under all three pricing assumptions (`research/put_decline_checks.py`, `decline_checks.csv`). The year exclusions above test the Sharpe level; this tests the edge over the benchmark. Central pricing, $1M:
+
+| Rule | Full-history ΔSharpe | Decline whose removal hurts most | ΔSharpe without it | Declines left out with the edge intact |
+|---|---|---|---|---|
+| 80% core + 95% put | +0.060 | Dec 2021–Nov 2023 | -0.007 | 6/7 |
+| 80% core + 90% put | +0.031 | Dec 2021–Nov 2023 | -0.003 | 6/7 |
+| 90% core + 95% put | +0.049 | Dec 2021–Nov 2023 | -0.025 | 6/7 |
+| 90% core + 90% put | +0.032 | Dec 2021–Nov 2023 | -0.034 | 6/7 |
+| 80% core + frozen put | +0.015 | Dec 2021–Nov 2023 | -0.006 | 6/7 |
+| 90% strike | +0.010 | Dec 2021–Nov 2023 | -0.001 | 6/7 |
+| 95% strike | +0.010 | Dec 2021–Nov 2023 | -0.007 | 6/7 |
+| Two staggered puts | +0.010 | Oct 2007–Oct 2010 | +0.001 | 7/7 |
+
+The cells that cleared the all-window checks above (80% core + 90% put, 80% core + 95% put) lose their edge when the Dec 2021–Nov 2023 decline is left out. 0 of 138 registered cells keep a positive edge with every decline left out at both account sizes under all three pricings. Among the 52 cells with a positive central $1M edge, the decline whose removal hurts most is Oct 2007–Oct 2010 for 42, Dec 2021–Nov 2023 for 9, Feb 2025–May 2025 for 1. The leading allocation/strike candidates therefore rest on the 2022 bear market. That episode falls inside the listed-quote era, so the quote audit can test it directly.
+
+**Gates against a same-day benchmark.** Feature gates start when their feature first exists. The VIX/VIX3M row in the portfolio table starts in September 2010, so its Sharpe is not comparable with rows that start in February 2007. Against a frozen hedge started the same day, central pricing, $1M:
+
+| Gate | Start | Gate Sharpe | Frozen hedge, same start | ΔSharpe |
+|---|---|---|---|---|
+| Always eligible | 2007-02-01 | 0.790 | 0.805 | -0.015 |
+| VXN-rank gate | 2007-02-01 | 0.722 | 0.805 | -0.083 |
+| Volatility-premium gate | 2007-02-01 | 0.749 | 0.805 | -0.056 |
+| VIX/VIX3M gate | 2010-09-17 | 0.924 | 0.954 | -0.030 |
+| SKEW gate | 2007-02-01 | 0.754 | 0.805 | -0.051 |
+
+**Quote dates in the audit notebook.** QuantConnect stamps a daily bar at its end time, which can be midnight after the session. `chain_on` now takes the timestamp minus one minute as the session date before requiring the exact trade session, so a midnight stamp no longer empties every audit.
+
+Reproduce this section with `python research/put_decline_checks.py`, then `python research/put_report.py`.

@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from options_experiments import RES, WINDOWS, registry
+from put_ported_checks import ported_section
 
 OUT = RES / "put_research"
 LABELS = {
@@ -136,6 +137,7 @@ def main():
         "The simulation preserves next-close execution, funded purchases, T-bill proceeds and the existing minimum fill rule. Maturity rolls when one third of tenor remains. Budgets constrain trailing 365-day gross purchase spend relative to trade-date NAV. The primary 2×2 guard ablation keeps the QQQ trend sleeve invested with the guard disabled. Ladder phases delay initial entry by zero to eleven months and permit cash during startup. A continuous-strike zero-debit collar is a theoretical diagnostic. Collars limit calls to QQQ shares, model European settlement and omit American early assignment. SPY uses VIX and the same provisional surface parameters. Short-leg offset and net hedge P&L are distinct from gross long premium. Liquidation drawdown includes the modeled cost of closing every leg.","",
         "Prices for the whole-contract sizing experiment come from the public Yahoo Finance daily chart histories for QQQ and SPY, using the Close field. Cboe supplied SKEW and VIX3M. VIX3M is an S&P volatility proxy. The affordability of a particular listed QQQ put requires its actual ask. [Cboe VIX3M history](https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX3M_History.csv) · [Cboe SKEW history](https://cdn.cboe.com/api/global/us_indices/daily_prices/SKEW_History.csv)","",
         "No QuantConnect cloud backtest or real-option fill validation was performed. The quote audit is in `qc/options_quote_audit.ipynb`. It requires QuantBook access to listed option history. The source branch records the US equity-options audit window as starting in 2012; 2008 remains model-only. The branch’s original annualized risk-free series and synthetic QLD returns are retained for comparability. Confirm the executable ask, stress bids, assignment and realized account sizing before adopting an overlay. [QuantConnect option history](https://www.quantconnect.com/docs/v2/writing-algorithms/datasets/algoseek/us-equity-options)",""])
+    lines.extend(ported_section(t, LABELS, OUT))
     (OUT/"REPORT.md").write_text("\n".join(lines))
 
 
