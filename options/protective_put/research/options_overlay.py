@@ -42,7 +42,9 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import brentq
 
-from common import RES, block_boot_delta, build_signals, load_panel, perf_stats
+import _paths  # noqa: F401  (puts the repo's research/ on sys.path)
+from _paths import RESULTS as RES
+from common import block_boot_delta, build_signals, load_panel, perf_stats
 from options_model import Leg, OptionBook, load_surface, pessimistic
 from strategy import Cfg, prepare
 

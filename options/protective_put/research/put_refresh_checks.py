@@ -1,5 +1,5 @@
 """Funded cold starts and crisis sensitivity for the exploratory allocation/strike candidates."""
-from options_experiments import RES, SURFACES, perf_stats, registry, init, simulate
+from options_experiments import EXTENSIONS, SURFACES, perf_stats, registry, init, simulate
 import options_experiments as exp
 import pandas as pd
 
@@ -31,7 +31,7 @@ def main():
                         rows.append(dict(**meta,sample=f"omit-{yr}",Sharpe=sharpe))
                         year=r[r.index.year==yr]
                         rows.append(dict(**meta,sample=str(yr),total_return=(1+year).prod()-1))
-    pd.DataFrame(rows).to_csv(RES/"put_research"/"refresh_checks.csv",index=False)
+    pd.DataFrame(rows).to_csv(EXTENSIONS/"refresh_checks.csv",index=False)
 
 
 if __name__=="__main__":

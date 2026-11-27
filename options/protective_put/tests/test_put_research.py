@@ -8,7 +8,9 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "research"))
-from common import RES, perf_stats
+import _paths  # noqa: F401
+from _paths import RESULTS as RES
+from common import perf_stats
 from options_experiments import BASE, SURFACES, panel
 from options_model import OptionBook
 from options_overlay import GRID, V2, run

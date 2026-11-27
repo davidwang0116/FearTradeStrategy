@@ -7,7 +7,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from common import RES, build_signals, load_panel, perf_stats
+import _paths  # noqa: F401  (puts the repo's research/ on sys.path)
+from _paths import EXTENSIONS, RAW, RESULTS as RES
+from common import build_signals, load_panel, perf_stats
 from options_model import CENTRAL, pessimistic
 from options_overlay import A_, B_, Hedge, V2, c1_for, episodes, run, scaled
 from strategy import prepare
@@ -18,7 +20,6 @@ SURFACES = {"central": CENTRAL, "pessimistic": pessimistic(CENTRAL),
 WINDOWS = {"full": (A_, B_), "early": (A_, "2016-12-31"),
            "late": ("2017-01-01", B_), "refresh": ("2019-12-31", B_), "2026-ytd": ("2025-12-31", B_),
            "data-extension": ("2026-04-17", B_), "quote-era": ("2012-01-03", B_)}
-RAW = RES.parent / "data" / "raw"
 
 
 def panel():
@@ -208,7 +209,7 @@ def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--family", default="all", choices=["all",*sorted({v[0] for v in registry().values()})])
     ap.add_argument("--jobs", type=int, default=4)
-    ap.add_argument("--out", type=Path, default=RES/"put_research")
+    ap.add_argument("--out", type=Path, default=EXTENSIONS)
     args=ap.parse_args()
     cells=registry()
     tasks=[(name,group,h,guard,price,size) for name,(group,h,guard) in cells.items()

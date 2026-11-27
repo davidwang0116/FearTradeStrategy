@@ -1,4 +1,4 @@
-"""Generate the QC Research notebooks (clean, output-free): qc/research_new_indicators.ipynb and qc/options_quote_audit.ipynb."""
+"""Generate the QC Research notebooks (clean, output-free): qc/research_new_indicators.ipynb and options/protective_put/qc/options_quote_audit.ipynb."""
 import nbformat as nbf
 from pathlib import Path
 
@@ -138,14 +138,14 @@ print("wrote", out)
 
 
 # =====================================================================================================
-# qc/options_quote_audit.ipynb — Stage 1 of the options plan: real 12-month QQQ put quotes (2012+)
+# options/protective_put/qc/options_quote_audit.ipynb — Stage 1 of the options plan: real 12-month QQQ put quotes (2012+)
 # =====================================================================================================
 cells = []
 md("""# 12-month QQQ put quotes: audit of the local hedge model + surface fit
 **Stage 1 gate for the options overlay** (README "Options overlay"). Written offline, not yet run.
 
 Upload to the Object Store first (from your laptop, repo root):
-`lean cloud object-store set options_ledger_central.csv results/options_ledger_central.csv`
+`lean cloud object-store set options_ledger_central.csv options/protective_put/results/options_ledger_central.csv`
 
 What this notebook does, all on QC's listed US equity-option quotes (they start in **January 2012**):
 1. **Trade audit.** For every option trade the local model made in 2012-2026 (all central cells), find the real QQQ
@@ -155,9 +155,9 @@ What this notebook does, all on QC's listed US equity-option quotes (they start 
    open interest on the sale dates.
 3. **Contracts at $1M.** Whole-contract counts and the sizing error vs the model's notional.
 4. **Surface fit.** Monthly sample 2012-2026 of puts at 65-100% moneyness and 1-24 months: fit the parameters
-   of `research/options_model.Surface` (ATM ratio to VXN, long-run vol, mean reversion, put skew at 12 months,
-   half-spread and its stress scaling) → `options_surface_fit.csv`. Copy it to `results/`; the local model loads
-   it automatically, then re-run `python research/options_overlay.py`.
+   of `options/protective_put/research/options_model.Surface` (ATM ratio to VXN, long-run vol, mean reversion, put skew at 12 months,
+   half-spread and its stress scaling) → `options_surface_fit.csv`. Copy it to `options/protective_put/results/`; the local model loads
+   it automatically, then re-run `python options/protective_put/research/options_overlay.py`.
 
 **Gate (decided before running):** stop the options track for v3 if the real entry asks are above the model's
 *pessimistic* band, or the Mar 2020 / May 2022 exits show no usable bids.""")
@@ -261,7 +261,7 @@ print(A.groupby("event")[["real_over_model", "spread_pct_mid"]].describe().round
 A.head(20)""")
 md("""**Gate check.** Entry asks: compare `real_over_model` for opening trades with the model's pessimistic band
 (the local pessimistic case pays about 1.26× the central price for a 12-month 85% put at VXN 14-25; recompute it
-with `research/options_model.py` if the surface changes).""")
+with `options/protective_put/research/options_model.py` if the surface changes).""")
 code("""opens = A[A["event"].isin(OPENS)]
 print("entry ask / model fill: median %.2f, 90th pct %.2f, n=%d" % (opens.real_over_model.median(),
       opens.real_over_model.quantile(.9), len(opens)))
@@ -351,10 +351,10 @@ code("""for ticker in ["QQQ", "SPY"]:
         qb.object_store.save(f"results/put_surface_{ticker}_{year}.csv",pd.DataFrame(observations).to_csv(index=False))""")
 md("""## 5. Download and re-run locally
 Download `results/options_quotes_12m.csv`, `results/options_surface_fit.csv` (and `options_surface_obs.csv`) from the
-Object Store into the repo's `results/`, then `python research/options_overlay.py && python research/options_figs.py`.
+Object Store into `options/protective_put/results/`, then `python options/protective_put/research/options_overlay.py && python options/protective_put/research/options_figs.py`.
 The trials table then says `surface: fit: options_surface_fit.csv`.""")
 
 nb = nbf.v4.new_notebook(cells=cells, metadata={"kernelspec": {"name": "python3", "display_name": "Python 3"}})
-out = Path(__file__).resolve().parents[1] / "qc" / "options_quote_audit.ipynb"
+out = Path(__file__).resolve().parents[1] / "options/protective_put" / "qc" / "options_quote_audit.ipynb"
 nbf.write(nb, out)
 print("wrote", out)

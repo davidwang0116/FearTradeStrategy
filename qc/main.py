@@ -11,7 +11,7 @@ Sleeves (tracked in a virtual book so the same ETF can sit in two sleeves):
   trend  trend-guarded half of the core (QQQ while QQQ >= 0.97 x MA200, else powder)
   lev    leverage sleeve: "QLD" | "TQQQ" | "LEAPS" | "NONE"
   powder dry powder in POWDER ETF (BIL/SGOV) or cash
-  hedge  overlay=HEDGE12M: one ~12-month QQQ put at hedge_moneyness (0.85) of spot, research/options_overlay.py
+  hedge  overlay=HEDGE12M: one ~12-month QQQ put at hedge_moneyness (0.85) of spot, options/protective_put/research/options_overlay.py
          (bought when fear pct <= 0.50; rolled with < 4 months left only while pct <= 0.50; otherwise held and
          sold 2 days before expiry). hedge_cover = all | unguarded, hedge_exit = fear | rolldown | hold,
          hedge_proceeds = tbill (P1, kept out of the powder) | tranche (P2, powder before same-day tranche sizing).
@@ -27,7 +27,7 @@ STATUS — written and logic-checked offline, NOT yet run on QC.  First run:
   2. Compare the [SIGNAL] composite for a few dates against results/signal_reference.csv.
   3. LEAPS mode is a skeleton (TODO-5): check chain filter, Greeks and marks first.
   4. overlay=HEDGE12M: written offline, not yet run. Check the [OPT] lines (fills at ask/bid, contract counts,
-     no stale quotes) against qc/options_quote_audit.ipynb before trusting the result.
+     no stale quotes) against options/protective_put/qc/options_quote_audit.ipynb before trusting the result.
 """
 from collections import deque
 
@@ -74,7 +74,7 @@ class FearTrancheAccumulator(QCAlgorithm):
         self.core_w = {t.split(":")[0]: float(t.split(":")[1]) for t in core_spec.split(",")}
         powder = self.get_parameter("powder") or "BIL"
 
-        # ---- options overlay (research/options_overlay.py) ----
+        # ---- options overlay (options/protective_put/research/options_overlay.py) ----
         self.overlay = (self.get_parameter("overlay") or "NONE").upper()
         self.hedge_cover = (self.get_parameter("hedge_cover") or "unguarded").lower()
         self.hedge_exit = (self.get_parameter("hedge_exit") or "hold").lower()
@@ -425,7 +425,7 @@ class FearTrancheAccumulator(QCAlgorithm):
         avail = self.book["powder"] * nav + self.hedge_bucket
         while n > 0 and cost > avail:
             n -= 1; cost = best.ask_price * 100 * n
-        if n <= 0 or n < 0.5 * want:              # same rule as research/options_overlay.MIN_FILL: no token puts
+        if n <= 0 or n < 0.5 * want:              # same rule as options/protective_put/research/options_overlay.MIN_FILL: no token puts
             self.log(f"[OPT] {self.time.date()} {why_tag}: cash funds {n} of {want} contracts, skipped (retry later)")
             return False
         self.market_order(best.symbol, n, tag=f"{why_tag} ask={best.ask_price:.2f}")

@@ -8,7 +8,8 @@ import pandas as pd
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "research"))
+sys.path.insert(0, str(ROOT / "research"))     # options/protective_put/research
+import _paths  # noqa: E402,F401  (puts the repo's research/ on sys.path)
 import strategy  # noqa: E402
 from common import build_signals, load_panel  # noqa: E402
 from options_model import CENTRAL, OptionBook, bs  # noqa: E402

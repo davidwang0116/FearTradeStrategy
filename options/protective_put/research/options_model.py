@@ -1,7 +1,7 @@
 """Model pricing for the 12-month QQQ put hedge (research/options_overlay.py).
 
 MODEL-PRICED. There are no option quotes locally. qc/options_quote_audit.ipynb pulls real 2012-2026 QQQ
-quotes and writes results/options_surface_fit.csv; load_surface() picks those parameters up automatically.
+quotes and writes results/options_surface_fit.csv (in options/protective_put/); load_surface() picks those parameters up automatically.
 Until then the defaults below are provisional, and 2008 always stays a model result (QC quotes start in 2012).
 
 Surface (VXN is a ~30-day Nasdaq-100 implied vol, so longer tenors need a term-structure assumption):
@@ -22,8 +22,9 @@ from pathlib import Path
 import numpy as np
 from scipy.special import ndtr
 
-ROOT = Path(__file__).resolve().parents[1]
-FIT_FILE = ROOT / "results" / "options_surface_fit.csv"
+from _paths import RESULTS
+
+FIT_FILE = RESULTS / "options_surface_fit.csv"
 T_REF = 30 / 365
 
 

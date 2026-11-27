@@ -5,10 +5,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from options_experiments import RES, WINDOWS, registry
+from options_experiments import EXTENSIONS, WINDOWS, registry
 from put_ported_checks import ported_section
 
-OUT = RES / "put_research"
+OUT = EXTENSIONS
 LABELS = {
     "unhedged":"Unhedged v2", "frozen":"Frozen 12m / 85 put", "claude-benchmark":"Frozen put, tranche proceeds",
     "put-91d-85":"3-month put", "put-182d-85":"6-month put", "put-548d-85":"18-month put",
@@ -133,7 +133,7 @@ def main():
         lines.append(f"- **{name}** — {len(g)} registered variants. {passed.sum()} cleared the paired Sharpe, equal-drawdown CAGR and protection checks across both account sizes, all three pricing assumptions and all five long windows.")
     lines.extend(["","The allocation/strike interaction was added after observing the initial single-factor results. The full 80%/90% allocation by 90%/95% strike follow-up is disclosed. The core-weight control rows isolate how much return came from owning more equity. An increase in a retrospectively selected subperiod remains exploratory.","",
         "## Reproduction and limits","",
-        "Run `python -m pytest tests`, `python research/options_experiments.py`, `python research/put_refresh_checks.py`, and `python research/put_report.py` from the worktree root. The registry and runner are in `research/options_experiments.py`. All window statistics are in `trials.csv.gz`, all baseline drawdown episodes in `declines.csv.gz`, and every central-price leg trade in `central_ledger.csv.gz`. The plain CSV scorecard supports filtering by cell, family, account size and period.","",
+        "From `options/protective_put/`, run `python -m pytest tests`, `python research/options_experiments.py`, `python research/put_refresh_checks.py`, `python research/put_decline_checks.py`, and `python research/put_report.py`. Outputs go to `results/extensions/`. The registry and runner are in `research/options_experiments.py`. All window statistics are in `trials.csv.gz`, all baseline drawdown episodes in `declines.csv.gz`, and every central-price leg trade in `central_ledger.csv.gz`. The plain CSV scorecard supports filtering by cell, family, account size and period.","",
         "The simulation preserves next-close execution, funded purchases, T-bill proceeds and the existing minimum fill rule. Maturity rolls when one third of tenor remains. Budgets constrain trailing 365-day gross purchase spend relative to trade-date NAV. The primary 2×2 guard ablation keeps the QQQ trend sleeve invested with the guard disabled. Ladder phases delay initial entry by zero to eleven months and permit cash during startup. A continuous-strike zero-debit collar is a theoretical diagnostic. Collars limit calls to QQQ shares, model European settlement and omit American early assignment. SPY uses VIX and the same provisional surface parameters. Short-leg offset and net hedge P&L are distinct from gross long premium. Liquidation drawdown includes the modeled cost of closing every leg.","",
         "Prices for the whole-contract sizing experiment come from the public Yahoo Finance daily chart histories for QQQ and SPY, using the Close field. Cboe supplied SKEW and VIX3M. VIX3M is an S&P volatility proxy. The affordability of a particular listed QQQ put requires its actual ask. [Cboe VIX3M history](https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX3M_History.csv) · [Cboe SKEW history](https://cdn.cboe.com/api/global/us_indices/daily_prices/SKEW_History.csv)","",
         "No QuantConnect cloud backtest or real-option fill validation was performed. The quote audit is in `qc/options_quote_audit.ipynb`. It requires QuantBook access to listed option history. The source branch records the US equity-options audit window as starting in 2012; 2008 remains model-only. The branch’s original annualized risk-free series and synthetic QLD returns are retained for comparability. Confirm the executable ask, stress bids, assignment and realized account sizing before adopting an overlay. [QuantConnect option history](https://www.quantconnect.com/docs/v2/writing-algorithms/datasets/algoseek/us-equity-options)",""])

@@ -9,7 +9,9 @@ import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 
-from common import AQUA, BLUE, INK, INK2, MUTED, ORANGE, RES, SURF, build_signals, load_panel, perf_stats, plt, savefig
+import _paths  # noqa: F401  (puts the repo's research/ on sys.path)
+from _paths import RESULTS as RES, savefig
+from common import AQUA, BLUE, INK, INK2, MUTED, ORANGE, SURF, build_signals, load_panel, perf_stats, plt
 from options_overlay import A_, B_, QC_A, V2, run, scaled
 from strategy import prepare
 

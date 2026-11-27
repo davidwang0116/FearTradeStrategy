@@ -9,13 +9,13 @@ Every registered cell, full window, whole contracts at $100k and $1M, all three 
 where their feature starts and are compared with a frozen hedge started the same day (as in options_experiments.score);
 declines outside a cell's window are skipped. Model-priced.
 
-Output: results/put_research/decline_checks.csv
+Output: results/extensions/decline_checks.csv
 """
 import numpy as np
 import pandas as pd
 
 import options_experiments as exp
-from options_experiments import A_, B_, BASE, RES, SURFACES, episodes, registry, simulate
+from options_experiments import A_, B_, BASE, EXTENSIONS, SURFACES, episodes, registry, simulate
 
 
 def sharpe(r, rf):
@@ -58,7 +58,7 @@ def main():
                                  **{f"without_{p:%Y-%m}": v for p, v in left_out.items()}))
         print(f"${size:,} done", flush=True)
     out = pd.DataFrame(rows)
-    out.to_csv(RES / "put_research" / "decline_checks.csv", index=False, float_format="%.10g")
+    out.to_csv(EXTENSIONS / "decline_checks.csv", index=False, float_format="%.10g")
     print(f"{len(out)} rows")
 
 
