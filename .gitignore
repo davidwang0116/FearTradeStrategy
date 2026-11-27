@@ -3,3 +3,4 @@ __pycache__/
 results/strategy_curves.pkl
 .ipynb_checkpoints/
 .DS_Store
+.venv/

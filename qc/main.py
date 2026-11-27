@@ -11,6 +11,13 @@ Sleeves (tracked in a virtual book so the same ETF can sit in two sleeves):
   trend  trend-guarded half of the core (QQQ while QQQ >= 0.97 x MA200, else powder)
   lev    leverage sleeve: "QLD" | "TQQQ" | "LEAPS" | "NONE"
   powder dry powder in POWDER ETF (BIL/SGOV) or cash
+  hedge  overlay=HEDGE12M: one ~12-month QQQ put at hedge_moneyness (0.85) of spot, research/options_overlay.py
+         (bought when fear pct <= 0.50; rolled with < 4 months left only while pct <= 0.50; otherwise held and
+         sold 2 days before expiry). hedge_cover = all | unguarded, hedge_exit = fear | rolldown | hold,
+         hedge_proceeds = tbill (P1, kept out of the powder) | tranche (P2, powder before same-day tranche sizing).
+         Run with capital = 1,000,000 (one QQQ contract is ~$68k of stock). Default overlay=NONE keeps v2 as is.
+         The overlay needs RAW prices (strikes), which also changes the signal inputs slightly (no dividend
+         adjustment). For the unhedged control run, set price_mode=raw so both runs see the same signal.
 
 Timing: signal on the daily bar that closes on day t (arrives after the close),
 orders are market-on-open for t+1 (QC fills at the next open in backtests).
@@ -19,6 +26,8 @@ STATUS — written and logic-checked offline, NOT yet run on QC.  First run:
   1. Check the log lines tagged [PROBE]: data start dates for QQQ/VXN/QLD/TQQQ/BIL.
   2. Compare the [SIGNAL] composite for a few dates against results/signal_reference.csv.
   3. LEAPS mode is a skeleton (TODO-5): check chain filter, Greeks and marks first.
+  4. overlay=HEDGE12M: written offline, not yet run. Check the [OPT] lines (fills at ask/bid, contract counts,
+     no stale quotes) against qc/options_quote_audit.ipynb before trusting the result.
 """
 from collections import deque
 
@@ -65,8 +74,23 @@ class FearTrancheAccumulator(QCAlgorithm):
         self.core_w = {t.split(":")[0]: float(t.split(":")[1]) for t in core_spec.split(",")}
         powder = self.get_parameter("powder") or "BIL"
 
+        # ---- options overlay (research/options_overlay.py) ----
+        self.overlay = (self.get_parameter("overlay") or "NONE").upper()
+        self.hedge_cover = (self.get_parameter("hedge_cover") or "unguarded").lower()
+        self.hedge_exit = (self.get_parameter("hedge_exit") or "hold").lower()
+        self.hedge_proceeds = (self.get_parameter("hedge_proceeds") or "tranche").lower()
+        self.hedge_m = _p(self, "hedge_moneyness", 0.85)
+        self.hedge_dte = _p(self, "hedge_dte", 365, int)
+        self.hedge_roll_dte = _p(self, "hedge_roll_dte", 122, int)
+        self.hedge_entry_p = _p(self, "hedge_entry_p", 0.50)
+        self.hedge_exit_p = _p(self, "hedge_exit_p", 0.90)
+        self.hedge_rolldown = _p(self, "hedge_rolldown_delta", -0.60)
+        if self.overlay != "NONE" and self.lev_mode == "LEAPS":
+            raise ValueError("overlay=HEDGE12M and lev=LEAPS both hold QQQ options; run them separately")
+
         norm = DataNormalizationMode.ADJUSTED if self.live_mode else DataNormalizationMode.TOTAL_RETURN
-        if self.lev_mode == "LEAPS":
+        force_raw = (self.get_parameter("price_mode") or "auto").lower() == "raw"   # unhedged control for HEDGE12M
+        if self.lev_mode == "LEAPS" or self.overlay != "NONE" or force_raw:
             norm = DataNormalizationMode.RAW   # option strikes need the raw underlying price
         add = lambda t: self.add_equity(t, Resolution.DAILY, data_normalization_mode=norm).symbol
         self.qqq = add("QQQ")
@@ -76,6 +100,13 @@ class FearTrancheAccumulator(QCAlgorithm):
         self.vxn = self.add_index("VXN", Resolution.DAILY).symbol
         if self.lev_mode == "LEAPS":
             self._init_leaps()
+        self.hedge_sym, self.hedge_bucket, self.hedge_delta = None, 0.0, 0.0
+        if self.overlay == "HEDGE12M":
+            hopt = self.add_option(self.qqq, Resolution.DAILY)
+            # wide filter: a held put stays in the universe as it ages and goes deep in the money; the purchase
+            # itself only considers contracts within +-120 days of hedge_dte (see _hedge_buy)
+            hopt.set_filter(lambda u: u.puts_only().strikes(-200, 200).expiration(0, self.hedge_dte + 120))
+            self.hedge_opt = hopt.symbol
 
         # ---- seed signal history (no look-ahead: history ends before start) ----
         hist = self.history([self.qqq], 900, Resolution.DAILY)
@@ -154,6 +185,10 @@ class FearTrancheAccumulator(QCAlgorithm):
         changed = False
         why = []
 
+        # options overlay, step 1: exits / rolls on today's signal, credited before tranche sizing
+        if self.overlay == "HEDGE12M" and self.hedge_sym is not None:
+            changed |= self._hedge_exit(data, p, recede, nav, why)
+
         # leverage exit
         lev_val = self.book["lev"] * nav
         if self.book["lev"] > 0:
@@ -202,6 +237,10 @@ class FearTrancheAccumulator(QCAlgorithm):
                 self.trend_on = want
                 changed = True; why.append("trend " + ("on" if want else "off"))
 
+        # options overlay, step 4: entry in calm
+        if self.overlay == "HEDGE12M" and self.hedge_sym is None and not np.isnan(p) and p <= self.hedge_entry_p:
+            changed |= self._hedge_buy(data, nav, "entry", why)
+
         self.log(f"[SIGNAL] {t} close={close:.2f} comp={comp:.2f} p={p:.3f} recede={recede} book={self._fmt()}")
         if changed:
             self.log(f"[TRADE] {t} {', '.join(why)}")
@@ -221,7 +260,7 @@ class FearTrancheAccumulator(QCAlgorithm):
             return
         core_val = sum(self.portfolio[s].holdings_value for s in self.core_syms.values())
         lev_val = self._lev_value()
-        powder_val = nav - core_val - lev_val
+        powder_val = nav - core_val - lev_val - self._hedge_value() - self.hedge_bucket   # puts and P1 cash are not powder
         tot_core = self.book["core"] + (self.book["trend"] if self.trend_on else 0)
         if tot_core > 0:
             share = self.book["core"] / tot_core
@@ -252,6 +291,7 @@ class FearTrancheAccumulator(QCAlgorithm):
             targets.append(PortfolioTarget(self.lev_sym, self.book["lev"]))
         if self.powder is not None:
             powder_frac = self.book["powder"] + (0.0 if self.trend_on else self.book["trend"])
+            powder_frac += self.hedge_bucket / max(self.portfolio.total_portfolio_value, 1e-9)   # P1 cash sits in T-bills too
             targets.append(PortfolioTarget(self.powder, max(powder_frac - 0.01, 0.0)))   # 1% cash buffer
         self.set_holdings(targets)
         if self.lev_mode == "LEAPS":
@@ -293,6 +333,142 @@ class FearTrancheAccumulator(QCAlgorithm):
         n = int(want_dollar_delta / (best.greeks.delta * best.underlying_last_price * 100))
         if n > 0:
             self.market_order(best.symbol, n, tag=f"LEAPS d={best.greeks.delta:.2f} K={best.strike}")
+
+    # ------------------------------------------------------------------ 12-month put hedge (overlay=HEDGE12M)
+    def _hedge_value(self):
+        if self.overlay == "NONE" or self.hedge_sym is None:
+            return 0.0
+        return self.portfolio[self.hedge_sym].holdings_value
+
+    def _cover_dollars(self, nav):
+        cover = self.book["core"] + 2 * self.book["lev"]
+        if self.hedge_cover == "all" and self.trend_on:
+            cover += self.book["trend"]
+        return cover * nav
+
+    def _quote(self, data, sym):
+        """Chain entry for sym (for Greeks), or None."""
+        chain = data.option_chains.get(self.hedge_opt) if data.option_chains.contains_key(self.hedge_opt) else None
+        if chain is None:
+            return None
+        for c in chain:
+            if c.symbol == sym:
+                return c
+        return None
+
+    def _put_delta(self, sym):
+        """Black-Scholes put delta from the held contract's own mid price (IV by bisection), used when the
+        chain has no Greeks for it. Quotes come from self.securities, which keeps a held contract subscribed."""
+        sec = self.securities[sym]
+        mid = (sec.bid_price + sec.ask_price) / 2 if sec.ask_price > 0 else sec.price
+        S = float(self.securities[self.qqq].price)
+        K = float(sym.id.strike_price)
+        T = max((sym.id.date - self.time).days, 1) / 365.0
+        r = 0.03
+        if mid <= 0 or S <= 0:
+            return None
+        from math import erf, exp, log, sqrt
+        N = lambda x: 0.5 * (1 + erf(x / sqrt(2)))
+        def price_delta(sig):
+            v = sig * sqrt(T); d1 = (log(S / K) + (r + 0.5 * sig * sig) * T) / v
+            return K * exp(-r * T) * N(-(d1 - v)) - S * N(-d1), N(d1) - 1.0
+        lo, hi = 0.01, 3.0
+        for _ in range(60):
+            mid_s = 0.5 * (lo + hi)
+            if price_delta(mid_s)[0] > mid:
+                hi = mid_s
+            else:
+                lo = mid_s
+        return price_delta(0.5 * (lo + hi))[1]
+
+    def _route(self, cash, nav):
+        """Credit sale proceeds now (fills come at the next open) so same-day tranche sizing sees them (P2)."""
+        if cash <= 0:
+            return
+        if self.hedge_proceeds == "tbill":
+            self.hedge_bucket += cash
+        else:
+            self.book["powder"] += cash / nav
+
+    def _hedge_sell(self, data, nav, why_tag, why):
+        h = self.portfolio[self.hedge_sym]
+        q = self.securities[self.hedge_sym]          # held contract: always subscribed, even outside the chain
+        bid = q.bid_price
+        if bid <= 0:
+            self.log(f"[OPT] {self.time.date()} {why_tag}: no bid for {self.hedge_sym.value}, kept")
+            return False
+        n = h.quantity
+        proceeds = bid * 100 * n
+        self.market_order(self.hedge_sym, -n, tag=f"{why_tag} bid={bid:.2f}")
+        self.log(f"[OPT] {self.time.date()} SELL {n} {self.hedge_sym.value} bid={bid:.2f} ask={q.ask_price:.2f} "
+                 f"oi={q.open_interest} proceeds={proceeds:,.0f} ({proceeds / nav:.1%} NAV) -> {self.hedge_proceeds}")
+        self._route(proceeds, nav)
+        self.hedge_sym = None
+        self.hedge_delta = 0.0
+        why.append(why_tag)
+        return True
+
+    def _hedge_buy(self, data, nav, why_tag, why):
+        chain = data.option_chains.get(self.hedge_opt) if data.option_chains.contains_key(self.hedge_opt) else None
+        if chain is None:
+            return False
+        spot = float(self.securities[self.qqq].price)
+        puts = [c for c in chain if c.right == OptionRight.PUT and c.ask_price > 0 and c.bid_price > 0
+                and abs((c.expiry - self.time).days - self.hedge_dte) <= 120]
+        if not puts:
+            return False
+        best = min(puts, key=lambda c: (abs(c.strike / spot - self.hedge_m) * 4 +
+                                        abs((c.expiry - self.time).days - self.hedge_dte) / 365))
+        want = int(round(self._cover_dollars(nav) / (100 * spot)))
+        n = want
+        cost = best.ask_price * 100 * n
+        avail = self.book["powder"] * nav + self.hedge_bucket
+        while n > 0 and cost > avail:
+            n -= 1; cost = best.ask_price * 100 * n
+        if n <= 0 or n < 0.5 * want:              # same rule as research/options_overlay.MIN_FILL: no token puts
+            self.log(f"[OPT] {self.time.date()} {why_tag}: cash funds {n} of {want} contracts, skipped (retry later)")
+            return False
+        self.market_order(best.symbol, n, tag=f"{why_tag} ask={best.ask_price:.2f}")
+        from_bucket = min(self.hedge_bucket, cost)
+        self.hedge_bucket -= from_bucket
+        self.book["powder"] -= (cost - from_bucket) / nav
+        if why_tag == "entry" and self.hedge_bucket > 0:          # leftover P1 cash rejoins the powder in calm
+            self.book["powder"] += self.hedge_bucket / nav
+            self.hedge_bucket = 0.0
+        self.hedge_sym = best.symbol
+        self.hedge_delta = float(best.greeks.delta) if best.greeks is not None and best.greeks.delta else 0.0
+        target = self._cover_dollars(nav)
+        self.log(f"[OPT] {self.time.date()} BUY {n} {best.symbol.value} K={best.strike} exp={best.expiry.date()} "
+                 f"ask={best.ask_price:.2f} bid={best.bid_price:.2f} oi={best.open_interest} cost={cost:,.0f} "
+                 f"({cost / nav:.2%} NAV) cover={n * 100 * spot / max(target, 1e-9):.0%} of target")
+        why.append(why_tag)
+        return True
+
+    def _hedge_exit(self, data, p, recede, nav, why):
+        """Returns True if anything was traded. A failed re-buy after a sale leaves hedge_sym None, so the
+        entry step retries after today's v2 rules (same as the local engine)."""
+        q = self._quote(data, self.hedge_sym)
+        days_left = (self.hedge_sym.id.date - self.time).days
+        if q is not None and q.greeks is not None and q.greeks.delta:
+            self.hedge_delta = float(q.greeks.delta)
+        else:
+            d = self._put_delta(self.hedge_sym)          # fresh every day: never act on a stale delta
+            self.hedge_delta = d if d is not None else 0.0
+        if days_left <= 2:                                                   # avoid exercise: sell instead
+            return self._hedge_sell(data, nav, "expiry sale", why)
+        if self.hedge_exit == "fear" and not np.isnan(p) and p >= self.hedge_exit_p and recede:
+            return self._hedge_sell(data, nav, "fear exit", why)
+        if self.hedge_exit == "rolldown" and self.hedge_delta <= self.hedge_rolldown:
+            if self._hedge_sell(data, nav, "roll-down sell", why):
+                self._hedge_buy(data, nav, "roll-down buy", why)
+                return True
+            return False
+        if days_left < self.hedge_roll_dte and not np.isnan(p) and p <= self.hedge_entry_p:
+            if self._hedge_sell(data, nav, "roll sell", why):
+                self._hedge_buy(data, nav, "roll buy", why)
+                return True
+            return False
+        return False
 
     def on_end_of_algorithm(self):
         self.log(f"[END] book={self._fmt()} NAV={self.portfolio.total_portfolio_value:,.0f}")

@@ -41,6 +41,73 @@ Earnings-based valuation inputs are lagged 3 months. Synthesized scores (dashboa
   (ATM IV 0.85 × VXN). It mostly adds CAGR (+1.3–2 pp) with more negative skew.
 * Real-quote check: qc/put_writing.py.
 
+## Options overlay: a 12-month put on the core (research/options_overlay.py) — PROVISIONAL
+**Status:** model-priced from VXN with a provisional volatility surface. Nothing here goes into v3 until the QC
+steps run:
+1. Stage 0: the unhedged QC run matches frozen v2.
+2. Stage 1: `qc/options_quote_audit.ipynb` checks every model trade against real 2012–2026 QQQ quotes and fits the
+   surface, which `research/options_model.py` then loads automatically.
+
+2008 stays a model result, because QC option quotes start in 2012.
+
+**Design.**
+- **Base:** v2 + QLD + trend guard, QQQ+SPY core, 2007-02 → 2026-09.
+- **Hedge:** one 12-month put struck at 85% of QQQ. It is bought when the fear percentile is ≤ 0.50, and rolled
+  with less than 4 months left only while fear stays ≤ 0.50. A purchase is skipped if cash covers less than half
+  of the target; the engine retries after the day's v2 rules and on later calm days.
+- **Costs:** half bid/ask 2% of the option price, widening in proportion to VXN above 25 (6.4% at VXN 80).
+- **Grid (12 cells, all reported):**
+  - coverage: all equity, or only the core outside the trend half;
+  - exit: sell at the fear peak, roll down at delta −0.6, or hold;
+  - proceeds: kept in T-bills, or paid into the tranche powder before same-day sizing.
+- **Pricing:** each cell is priced three ways:
+  - central;
+  - pessimistic (put skew ×1.5, spreads ×2, ATM IV = VXN);
+  - flat-term (12-month IV rises half as much in a VXN spike).
+- **Cash control:** each cell is compared with v2 scaled with T-bills, with the scale solved so max drawdown matches.
+  Lowering `core_target` is *not* a cash control here: v2's MaxDD stays −37.5% to −38.9% for every `core_target`
+  from 0.40 to 0.95 (`results/options_core_target_frontier.csv`). At low targets the tranches spend the extra
+  powder in the crash (core 0.40: exposure 0.40 before, 0.98 at the 2009 trough); at high targets the trend guard
+  cuts exposure instead (core 0.95: 0.95 before, 0.41 at the trough).
+
+| Cell | Pricing | CAGR | Vol | Sharpe | MaxDD | CAGR vs cash control, same MaxDD | 90% block-bootstrap CI | same, 2012–26 only | min net exposure |
+|---|---|---|---|---|---|---|---|---|---|
+| v2 unhedged | — | 11.8% | 15.2% | 0.71 | −38.8% | — | — | — | +0.42 |
+| **core-only put, hold** | central | 10.3% | 11.0% | **0.80** | **−24.7%** | **+2.3 pp** | [+1.1, +3.7] | +1.7 pp | +0.12 |
+| core-only put, hold | pessimistic | 9.9% | 10.8% | 0.78 | −25.0% | +1.8 pp | [+0.6, +3.2] | +1.1 pp | +0.12 |
+| core-only put, hold | flat-term | 10.0% | 11.4% | 0.76 | −24.7% | +2.0 pp | [+0.8, +3.5] | +1.4 pp | +0.12 |
+| all-equity put, hold | central | 9.8% | 10.2% | 0.82 | −22.2% | +2.5 pp | [+0.8, +4.4] | +1.7 pp | **−0.13** |
+| all-equity put, fear exit, T-bills | central | 10.6% | 11.6% | 0.79 | −24.4% | +2.7 pp | [+1.3, +4.5] | −0.3 pp | +0.04 |
+| all-equity put, fear exit, tranches | central | 11.1% | 13.0% | 0.76 | −29.6% | +1.8 pp | [+0.4, +3.7] | −0.4 pp | +0.04 |
+
+What the provisional numbers say (`figures/fig_options_frontier.png`, `fig_options_episodes.png`, `fig_options_sales.png`):
+* **Insurance beats holding less equity, most clearly when the put is held.** Over the full window, 12 of 12 cells
+  beat their cash control under central and flat-term pricing, and 10 of 12 under pessimistic pricing (the two
+  core-only roll-down cells lose 0.1–0.2 pp). On 2012–2026 alone, the window QC can check, the four *hold* cells win
+  by 0.9–1.7 pp under every pricing; the other eight range from −1.4 to +0.2 pp (2 of 8 slightly positive under
+  central pricing, none under the other two). Net hedge cost is roughly 1.0–2.7% of NAV a year (cumulative option P&L over
+  average NAV).
+* **It buys lower risk, not higher CAGR.** Sharpe rises from 0.71 to 0.71–0.82 and max drawdown falls from −39% to
+  −22% to −33%. Raw CAGR falls by 0.6–2.7 pp.
+* **Recycling the proceeds into tranches does not pay at equal risk.** Proceeds into tranches minus proceeds into
+  T-bills (central pricing): −0.9 pp (fear exit), −0.5 pp (roll-down), +0.05 pp (hold) with the put on all equity;
+  −0.4, −0.2 and +0.05 pp with the put on the core only. The fear-peak exit sells too early in big
+  declines (Oct 2008: QQQ fell another 19%; May 2022: another 16%), so the redeployed cash takes the rest of the fall.
+  In 4 of v2's 7 declines the exit never fires before the trough.
+* **Held puts on all equity overlap with the trend guard.** The put bought on Jun 6, 2008 covered 83% of NAV,
+  including the trend half; the guard moved that half to cash on Jun 27. In the all-equity *hold* cells the
+  portfolio was then net short on 111 days between Nov 12, 2008 and Apr 24, 2009 (min −0.13) and lagged the 2009
+  rebound. The fear-exit and roll-down cells sold before that and never went net short. Putting the hedge on the
+  core only avoids this.
+* Positions are marked at mid; a sale gets the bid, so NAV at a crash trough is slightly overstated when the put is
+  large (up to ~28% of NAV in Mar 2009 for the all-equity hold cells).
+* Trial count for the Deflated Sharpe: 12 new strategy cells (each priced 3 ways).
+
+QC: `qc/main.py` has `overlay=HEDGE12M` with `hedge_cover`, `hedge_exit` and `hedge_proceeds` parameters, run at
+`capital=1000000`. One QQQ contract is about $68k of stock, so $100k can't be sized to the model. Default
+`overlay=NONE` leaves v2 unchanged. The overlay switches prices to RAW (needed for strikes), which also shifts the
+signal slightly; run the unhedged control with `price_mode=raw` so both runs see the same signal.
+
 ## Top-10 stocks by dollar volume
 * Rigorous version: qc/top10_dollar_volume.py (point-in-time universe, rules: equal, invvol,
   dollarvol, reversal, momentum, drawdown, optional trend guard).
@@ -76,6 +143,10 @@ research/edge_study.py       per-indicator trading edge (1y vs any day) and 2x-D
 research/edge_figs.py        fig_edge_trading.png, fig_edge_dca.png
 research/vol_selling.py      VRP by fear level; cash-secured puts / spreads, standalone and on the dry powder
 research/top10_local.py      illustrative top-10 dollar-volume rules (biased sample)
+research/options_model.py    BS pricing, VXN-based IV surface (loads the QC fit if present), OptionBook with a cash ledger
+research/options_overlay.py  12-month put hedge on v2: 12 cells x 3 pricings vs a T-bill cash control → results/options_*.csv
+research/options_figs.py     fig_options_frontier / _episodes / _sales
+qc/options_quote_audit.ipynb QC Research: real 12-month put quotes for every model trade + surface fit (built by tools/build_qc_notebook.py)
 qc/put_writing.py            QC: put writing on real option quotes
 qc/top10_dollar_volume.py    QC: point-in-time top-10 dollar-volume universe with weighting rules
 qc/signals.py                QC-safe port of the dashboard composite (parity-tested to 1e-6)
@@ -91,7 +162,9 @@ Reproduce (Python ≥3.10, `pip install -r requirements.txt`, ~1 min):
 python data/build_dataset.py && python research/evidence.py && python research/strategy.py \
   && python research/strategy_figs.py && python research/edge_study.py \
   && python research/edge_figs.py && python tests/test_signals_parity.py
+python research/options_overlay.py && python research/options_figs.py && python -m pytest tests/
 ```
+pandas ≥ 2.2 is needed (the code uses the "ME"/"YE" frequency aliases).
 
 ## QuantConnect hand-off — TODO list for teammates
 
