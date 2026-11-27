@@ -98,6 +98,7 @@ class Leg:
     units: float      # shares; + long, - short
     T0: float
     opened: object = None
+    reduced: bool = False
 
 
 @dataclass
@@ -108,12 +109,19 @@ class OptionBook:
     legs: list = field(default_factory=list)
     ledger: list = field(default_factory=list)
 
+    fee_per_share: float = 0.0
+
     def quote(self, leg, S, r, vxn):
         sig = self.surface.iv(S, leg.K, max(leg.T, 1e-8), vxn)
         return bs(S, leg.K, leg.T, r, sig, leg.right)
 
     def mark(self, S, r, vxn):
         return sum(l.units * self.quote(l, S, r, vxn)[0] for l in self.legs)
+
+    def liquidation(self, S, r, vxn):
+        """Cash obtained by crossing the spread on each long or short position."""
+        return sum(self._fill(self.quote(leg, S, r, vxn)[0], -leg.units, S, vxn)
+                   for leg in self.legs)
 
     def delta(self, S, r, vxn):
         """Dollar delta of the whole book."""
@@ -126,8 +134,8 @@ class OptionBook:
         """Cash flow for trading `units` (+ buy, - sell) at mid with the spread and tick."""
         h, tick = self.surface.h(vxn), self.surface.tick * S
         if units > 0:
-            return -units * (mid * (1 + h) + tick)
-        return -units * max(mid * (1 - h) - tick, 0.0)
+            return -units * (mid * (1 + h) + tick + self.fee_per_share)
+        return -units * (max(mid * (1 - h) - tick, 0.0) - self.fee_per_share)
 
     def open(self, right, K, T, units, S, r, vxn, when=None, why="open"):
         leg = Leg(right, K, T, units, T, when)
@@ -150,6 +158,16 @@ class OptionBook:
         self.ledger.append(dict(date=when, event=why, right=leg.right, K=leg.K, T=leg.T, units=-leg.units,
                                 mid=mid, S=S, vxn=vxn, cash=cash))
         return cash
+
+    def reduce(self, i, units, S, r, vxn, when=None):
+        leg = self.legs[i]
+        if not 0 < units <= leg.units:
+            raise ValueError("Partial sale exceeds long units")
+        if units == leg.units:
+            return self.close(i, S, r, vxn, when, "partial")
+        leg.units -= units
+        self.legs.append(replace(leg, units=units))
+        return self.close(-1, S, r, vxn, when, "partial")
 
     def close_all(self, S, r, vxn, when=None, why="close"):
         return sum(self.close(len(self.legs) - 1, S, r, vxn, when, why) for _ in range(len(self.legs)))

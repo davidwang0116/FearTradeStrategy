@@ -154,7 +154,7 @@ What this notebook does, all on QC's listed US equity-option quotes (they start 
 2. **Stress fills.** Show the held contracts around **Mar 2020** and **May 2022**: bid, ask, spread, volume,
    open interest on the sale dates.
 3. **Contracts at $1M.** Whole-contract counts and the sizing error vs the model's notional.
-4. **Surface fit.** Monthly sample 2012-2026 of puts at 80-100% moneyness and 1-15 months: fit the parameters
+4. **Surface fit.** Monthly sample 2012-2026 of puts at 65-100% moneyness and 1-24 months: fit the parameters
    of `research/options_model.Surface` (ATM ratio to VXN, long-run vol, mean reversion, put skew at 12 months,
    half-spread and its stress scaling) → `options_surface_fit.csv`. Copy it to `results/`; the local model loads
    it automatically, then re-run `python research/options_overlay.py`.
@@ -169,13 +169,13 @@ qb = QuantBook()
 qqq = qb.add_equity("QQQ", Resolution.DAILY, data_normalization_mode=DataNormalizationMode.RAW).symbol
 vxn = qb.add_index("VXN", Resolution.DAILY).symbol
 opt = qb.add_option("QQQ", Resolution.DAILY)
-opt.set_filter(lambda u: u.include_weeklys().puts_only().strikes(-200, 200).expiration(0, 500))   # wide: held puts go deep ITM in crashes
+opt.set_filter(lambda u: u.include_weeklys().puts_only().strikes(-200, 200).expiration(0, 810))   # wide: held puts go deep ITM in crashes
 CAN = opt.symbol
 TBILL = {2012: .0009, 2013: .0006, 2014: .0003, 2015: .0005, 2016: .0032, 2017: .0093, 2018: .0194, 2019: .0206,
          2020: .0035, 2021: .0005, 2022: .0202, 2023: .0507, 2024: .0497, 2025: .0410, 2026: .0375}
-spot = qb.history(qqq, datetime(2011, 12, 1), datetime.now(), Resolution.DAILY).loc[qqq]["close"]
+spot = qb.history(qqq, datetime(2011, 12, 1), datetime(2026, 9, 12), Resolution.DAILY).loc[qqq]["close"]
 spot.index = pd.to_datetime(spot.index).normalize()
-vx = qb.history(vxn, datetime(2011, 12, 1), datetime.now(), Resolution.DAILY).loc[vxn]["close"] / 100
+vx = qb.history(vxn, datetime(2011, 12, 1), datetime(2026, 9, 12), Resolution.DAILY).loc[vxn]["close"] / 100
 vx.index = pd.to_datetime(vx.index).normalize()
 print("QQQ raw", spot.index.min().date(), "->", spot.index.max().date(), "| VXN", vx.index.min().date(), "->", vx.index.max().date())
 
@@ -189,15 +189,17 @@ def iv_put(px, S, K, T, r):
     except Exception:
         return np.nan
 
-def chain_on(day, days=4):
-    \"\"\"Daily put quotes on `day` (first trading day on/after it): one row per contract.\"\"\"
-    h = qb.option_history(CAN, day, day + timedelta(days=days), Resolution.DAILY)
+def chain_on(day, days=1):
+    \"\"\"Daily put quotes on `day` (first trading day on/after it): one row per contract. Trade audits require the exact session.\"\"\"
+    h = qb.option_history(qqq, day, day + timedelta(days=days), Resolution.DAILY, fill_forward=False)
     df = h.data_frame
     if df is None or df.empty:
         return pd.DataFrame()
     df = df.reset_index()
     df["time"] = pd.to_datetime(df["time"]).dt.normalize()
     first = df["time"].min()
+    if days == 1 and first != pd.Timestamp(day).normalize():
+        return pd.DataFrame()
     df = df[df["time"] == first].copy()
     df["expiry"] = pd.to_datetime(df["expiry"])
     df["dte"] = (df["expiry"] - first).dt.days
@@ -205,7 +207,9 @@ def chain_on(day, days=4):
     return df
 
 def pick(df, S, moneyness, dte):
-    d = df[(df["askclose"] > 0)].copy()
+    d = df[(df["askclose"] > 0) & (df["bidclose"] >= 0) & (df["askclose"] >= df["bidclose"])
+           & ((df["strike"]/S - moneyness).abs() <= .025)
+           & ((df["dte"]-dte).abs() <= max(20, .15*dte))].copy()
     if d.empty:
         return None
     d["score"] = (d["strike"] / S - moneyness).abs() * 4 + (d["dte"] - dte).abs() / 365
@@ -218,6 +222,11 @@ rows, held = [], {}
 for _, t in L.iterrows():
     day = t["date"].to_pydatetime()
     S = float(spot.asof(t["date"]))
+    if t["event"] in OPENS:
+        held.pop(t.cell, None)
+    if t["event"] == "expire":
+        rows.append(dict(cell=t.cell,date=t.date.date(),event=t.event,note="model settlement; no sale quote"))
+        continue
     df = chain_on(day)
     if df.empty:
         rows.append(dict(cell=t.cell, date=t.date.date(), event=t.event, note="no chain")); continue
@@ -256,10 +265,10 @@ for a, b in [("2020-02-20", "2020-04-15"), ("2022-04-20", "2022-06-30")]:
           [["cell", "date", "event", "strike", "dte", "real_fill_pct", "model_fill_pct", "spread_pct_mid", "volume", "open_interest"]]
           .round(4).to_string())""")
 md("## 4. Surface fit (monthly sample 2012-2026)")
-code("""grid_m = [0.80, 0.85, 0.90, 0.95, 1.00]
-grid_d = [30, 91, 182, 273, 365, 450]
+code("""grid_m = [0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00]
+grid_d = [30, 91, 182, 273, 365, 450, 548, 730]
 obs = []
-for day in pd.date_range("2012-01-01", datetime.now(), freq="MS"):
+for day in pd.date_range("2012-01-01", datetime(2026, 9, 12), freq="MS"):
     df = chain_on(day.to_pydatetime(), days=6)
     if df.empty:
         continue
@@ -303,6 +312,37 @@ F["note"] = "fit on QC QQQ put quotes 2012-2026 (skew_put at 12 months, 85% stri
 qb.object_store.save("results/options_surface_fit.csv", F.to_csv(index=False))
 qb.object_store.save("results/options_surface_obs.csv", O.to_csv(index=False))
 F""")
+md("""## Additional QQQ and SPY surface observations
+Collect two-sided listed puts and calls by underlying for the extensions. Write each year separately.
+The full-window fitted surface above is descriptive. Fit each evaluation year only with earlier observations.""")
+code("""for ticker in ["QQQ", "SPY"]:
+    asset = qb.add_equity(ticker, Resolution.DAILY, data_normalization_mode=DataNormalizationMode.RAW).symbol
+    chain = qb.add_option(ticker, Resolution.DAILY)
+    chain.set_filter(lambda u: u.include_weeklys().strikes(-250, 250).expiration(5, 810))
+    closes = qb.history(asset, datetime(2012,1,1), datetime(2026,9,12), Resolution.DAILY).loc[asset]["close"]
+    closes.index = pd.to_datetime(closes.index).normalize()
+    for year in range(2012,2027):
+        observations = []
+        for date, S in closes[closes.index.year == year].groupby(closes[closes.index.year == year].index.month):
+            session, spot_value = S.index[0], float(S.iloc[0])
+            h = qb.option_history(asset, session.to_pydatetime(), (session+pd.Timedelta(days=1)).to_pydatetime(),
+                                  Resolution.DAILY, fill_forward=False).data_frame
+            if h is None or h.empty:
+                continue
+            quotes = h.reset_index()
+            quotes = quotes[pd.to_datetime(quotes.time).dt.normalize() == session].copy()
+            quotes["dte"] = (pd.to_datetime(quotes.expiry)-session).dt.days
+            quotes = quotes[(quotes.bidclose > 0) & (quotes.askclose >= quotes.bidclose)]
+            for right, targets in [("put",grid_m),("call",[1.0,1.05,1.10,1.15,1.20,1.25,1.30])]:
+                side = quotes[quotes.right.astype(str).str.lower().str.endswith(right)]
+                for tenor in grid_d:
+                    for strike in targets:
+                        q = pick(side,spot_value,strike,tenor)
+                        if q is not None:
+                            observations.append(dict(date=session,ticker=ticker,right=right,target_dte=tenor,
+                                target_m=strike,contract=str(q.symbol),spot=spot_value,expiry=q.expiry,
+                                strike=q.strike,bid=q.bidclose,ask=q.askclose))
+        qb.object_store.save(f"results/put_surface_{ticker}_{year}.csv",pd.DataFrame(observations).to_csv(index=False))""")
 md("""## 5. Download and re-run locally
 Download `results/options_quotes_12m.csv`, `results/options_surface_fit.csv` (and `options_surface_obs.csv`) from the
 Object Store into the repo's `results/`, then `python research/options_overlay.py && python research/options_figs.py`.

@@ -43,7 +43,7 @@ import pandas as pd
 from scipy.optimize import brentq
 
 from common import RES, block_boot_delta, build_signals, load_panel, perf_stats
-from options_model import OptionBook, load_surface, pessimistic
+from options_model import Leg, OptionBook, load_surface, pessimistic
 from strategy import Cfg, prepare
 
 A_, B_ = "2007-02-01", "2026-09-11"
@@ -65,12 +65,28 @@ class Hedge:
     exit_p: float = 0.90
     rolldown_delta: float = -0.60
 
+    cover_ratio: float = 1.0
+    budget_pa: float | None = None   # rolling purchase debits as a fraction of trade-date NAV
+    gate: str = "p"
+    beta: str | None = None
+    dynamic: bool = False
+    partial: float = 0.0
+    partial_trigger: str = "fear"
+    lower_m: float | None = None
+    call_m: float | None = None
+    cover_shares_only: bool = False
+    ladder: int = 1
+    phase_days: int = 0
+    split_spy: bool = False
+    whole: bool = False
+    fee: float = 0.65               # research assumption, per contract per side in whole mode
+
     @property
     def label(self):
         return f"{self.cover} · {self.exit} · {self.proceeds}"
 
 
-def run(D, c: Cfg, start=A_, end=B_, hedge: Hedge | None = None, surface=None, capital=100_000.0):
+def run(D, c: Cfg, start=A_, end=B_, hedge: Hedge | None = None, surface=None, capital=100_000.0, keep_trend_invested=False):
     """strategy.run plus an optional put hedge. With hedge=None this must reproduce strategy.run exactly."""
     D = D.loc[start:end].copy()
     D = D.dropna(subset=["r_qqq"] + [f"r_{k}" for k, _ in c.core])
@@ -78,7 +94,7 @@ def run(D, c: Cfg, start=A_, end=B_, hedge: Hedge | None = None, surface=None, c
     idx = D.index
     core = {k: capital * c.core_target * w for k, w in c.core}
     trend = 0.0
-    if c.trend_guard:
+    if c.trend_guard or keep_trend_invested:
         half = sum(core.values()) / 2
         core = {k: v / 2 for k, v in core.items()}
         trend = half
@@ -90,18 +106,33 @@ def run(D, c: Cfg, start=A_, end=B_, hedge: Hedge | None = None, surface=None, c
     last_tranche_i, last_tranche_px, last_trim_i = -999, np.inf, -999
     lev_mult = {"qld": 2, "tqqq": 3}.get(c.lev, 0)
     # ---- option state ----
-    book = OptionBook(surface or load_surface()) if hedge else None
+    surface = surface or (load_surface() if hedge else None)
+    symbols = ("qqq", "spy") if hedge and hedge.split_spy else ("qqq",)
+    books = [(symbol, rung, OptionBook(surface, fee_per_share=hedge.fee/100 if hedge.whole else 0.0)) for symbol in symbols
+             for rung in range(hedge.ladder if hedge else 0)]
+    first_entry = None
+    purchases = []
+    ledger = []
+    def market(symbol, row):
+        if symbol == "qqq":
+            return row["raw_qqq" if hedge.whole else "qqq"], row["vxn"] / 100
+        return row["raw_spy" if hedge.whole else "spy"], row["vix"] / 100
+
+    def total(method):
+        return sum(getattr(book, method)(market(symbol, row)[0], r, market(symbol, row)[1])
+                   for symbol, _, book in books)
+
     bucket = 0.0                      # P1 proceeds (T-bills, invisible to the v2 rules)
     opt_flows = np.zeros(n)           # option cash flows by day (premiums < 0, sales / settlements > 0)
     opt_mark = np.zeros(n)
     hlog = []
-    prev_delta = 0.0                  # put delta at the previous (signal) close
+    prior_deltas = {}
     nav = np.empty(n)
-    rec = {k: np.empty(n) for k in ["core", "lev", "cash", "trend", "expo", "bucket", "opt"]}
+    liquidation = np.empty(n)
+    rec = {k: np.empty(n) for k in ["core", "lev", "cash", "trend", "expo", "bucket", "opt", "held"]}
     trades = []
     prev = None
-    for i in range(n):
-        row = D.iloc[i]
+    for i, row in enumerate(D.to_dict("records")):
         S, r, vx = row["qqq"], row["rf"], row["vxn"] / 100
         # 1) returns for day i on positions held since close i-1
         if i > 0:
@@ -115,25 +146,36 @@ def run(D, c: Cfg, start=A_, end=B_, hedge: Hedge | None = None, surface=None, c
                 lev *= 1 + row["r_" + c.lev]
                 lev_days += 1
             cash *= 1 + row["rf"] / 252
-            if book is not None:
+            if books:
                 bucket *= 1 + row["rf"] / 252
-                book.step((idx[i] - idx[i - 1]).days)
-                x = book.expire(S, idx[i])
-                if x:
-                    opt_flows[i] += x
-                    hlog.append(_hlog(idx[i], "expire", S, x, row, None))
-                    if hedge.proceeds == "tbill":
-                        bucket += x
-                    else:
-                        cash += x
-        mark = book.mark(S, r, vx) if book is not None else 0.0
+                for symbol, rung, book in books:
+                    spot, _ = market(symbol, row)
+                    book.step((idx[i] - idx[i - 1]).days)
+                    x = book.expire(spot, idx[i])
+                    if x:
+                        opt_flows[i] += x
+                        hlog.append(_hlog(idx[i], "expire", spot, x, row, None))
+                        if hedge.proceeds == "tbill" and x >= 0:
+                            bucket += x
+                        else:
+                            cash += x
+        mark = total("mark")
         V = sum(core.values()) + trend + lev + cash + bucket + mark
 
         def equity_dollars():
             e = sum(core.values()) + lev_mult * lev
             if hedge.cover == "all" and trend_on:
                 e += trend * (2 if trend_lev else 1)
-            return e
+            if hedge.split_spy:
+                e = core.get("spy", 0) if symbol == "spy" else e - core.get("spy", 0)
+            if hedge.beta:
+                e += core.get("spy", 0) * (prev[hedge.beta] - 1)
+            if hedge.call_m is not None or hedge.cover_shares_only:
+                e = min(e, core.get("qqq", 0))
+            ratio = hedge.cover_ratio
+            if hedge.dynamic:
+                ratio = 1.0 if prev["high_rv"] else 0.5
+            return max(0.0, e * ratio / hedge.ladder)
 
         def route(x, why):
             """Send a hedge cash flow to P1 bucket / P2 powder; costs are paid from the bucket first."""
@@ -153,37 +195,85 @@ def run(D, c: Cfg, start=A_, end=B_, hedge: Hedge | None = None, surface=None, c
             """Open a new 12-month put on current covered equity, scaled down if cash is short. If cash covers less
             than MIN_FILL of the target, buy nothing: the book stays empty, so step 4 retries after today's v2 rules
             (a QLD exit can free cash later the same close) and on later days, instead of holding a token put."""
+            nonlocal first_entry
+            if first_entry is not None:
+                offset = 243 * rung / hedge.ladder
+                if (idx[i] - first_entry).days < offset:
+                    return 0.0
+            elif rung or (idx[i] - idx[0]).days < hedge.phase_days:
+                return 0.0
             T = hedge.tenor_days / 365.25
-            K = hedge.moneyness * S
+            legs = [("P", hedge.moneyness, 1)]
+            if hedge.lower_m:
+                legs.append(("P", hedge.lower_m, -1))
+            call = hedge.call_m
+            if call == 0:  # Continuous-strike diagnostic, including modeled crossing costs.
+                def package_cost(m):
+                    cost = book.cost_per_unit("P", hedge.moneyness*S, T, S, r, vx)
+                    for right, strike in [("P", hedge.lower_m), ("C", m)]:
+                        mid = book.quote(Leg(right, strike*S, T, -1, T), S, r, vx)[0]
+                        cost -= book._fill(mid, -1, S, vx)
+                    return cost
+                if package_cost(1.0) > 0 or package_cost(2.0) < 0:
+                    return 0.0
+                call = brentq(package_cost, 1.0, 2.0)
+            if call is not None:
+                legs.append(("C", call, -1))
             want = equity_dollars() / S
-            unit_cost = book.cost_per_unit("P", K, T, S, r, vx)
+            gross = book.cost_per_unit("P", hedge.moneyness * S, T, S, r, vx)
+            net = gross
+            for right, strike, side in legs[1:]:
+                quote = book.quote(Leg(right, strike*S, T, side, T), S, r, vx)[0]
+                net -= book._fill(quote, side, S, vx)
+            unit_cost = net
             avail = max(cash, 0.0) + bucket
             units = min(want, avail / unit_cost) if unit_cost > 0 else want
+            if hedge.budget_pa is not None:
+                spent = sum(frac for date, frac in purchases if (idx[i]-date).days < 365)
+                units = min(units, max(0, hedge.budget_pa-spent)*V / gross)
+            if hedge.whole:
+                units = 100 * np.floor(units / 100)
             if units * S < 100 or units < MIN_FILL * want:
                 return 0.0
-            return book.open("P", K, T, units, S, r, vx, idx[i], why)
+            flow = sum(book.open(right, strike*S, T, units*side, S, r, vx, idx[i], why)
+                       for right, strike, side in legs)
+            if hedge.budget_pa is not None:
+                purchases.append((idx[i], units*gross/V))
+            if first_entry is None:
+                first_entry = idx[i]
+            return flow
 
-        # 2) option exits and rolls on yesterday's signal, before the v2 rules size anything today
-        if book is not None and prev is not None and book.legs:
-            p_, recede_ = prev["p"], prev["vxn_recede"]
-            T_left = min(l.T for l in book.legs)
-            if hedge.exit == "fear" and not np.isnan(p_) and p_ >= hedge.exit_p and recede_:
+        eligible = hedge and prev is not None and (
+            hedge.gate == "always" or prev[hedge.gate] <= hedge.entry_p)
+        for symbol, rung, book in books:
+            S, vx = market(symbol, row)
+            if not book.legs or prev is None:
+                continue
+            prev_delta = prior_deltas[symbol, rung]
+            fear_exit = prev["p"] >= hedge.exit_p and prev["vxn_recede"]
+            delta_exit = prev_delta <= hedge.rolldown_delta
+            long = book.legs[0]
+            trigger = fear_exit if hedge.partial_trigger == "fear" else delta_exit
+            if hedge.partial and trigger and not long.reduced:
+                n = hedge.partial * long.units
+                if hedge.whole:
+                    n = 100 * np.floor(n / 100)
+                if n:
+                    route(book.reduce(0, n, S, r, vx, idx[i]), "partial")
+                long.reduced = True
+            elif hedge.exit == "fear" and fear_exit:
                 x = book.close_all(S, r, vx, idx[i], "fear exit")
                 route(x, "fear exit")
                 hlog.append(_hlog(idx[i], "fear exit", S, x, row, prev_delta))
-            elif hedge.exit == "rolldown" and prev_delta <= hedge.rolldown_delta:
-                x = book.close_all(S, r, vx, idx[i], "roll-down sell")
-                route(x, "roll-down sell")
-                y = buy_put("roll-down buy")
-                route(y, "roll-down buy")
-                hlog.append(_hlog(idx[i], "roll-down", S, x + y, row, prev_delta))
-            elif T_left * 365.25 < hedge.roll_left_days and not np.isnan(p_) and p_ <= hedge.entry_p:
-                x = book.close_all(S, r, vx, idx[i], "roll sell")
-                route(x, "roll sell")
-                y = buy_put("roll buy")
-                route(y, "roll buy")
-                hlog.append(_hlog(idx[i], "roll", S, x + y, row, prev_delta))
-        V = sum(core.values()) + trend + lev + cash + bucket + (book.mark(S, r, vx) if book is not None else 0.0)
+            elif (hedge.exit == "rolldown" and delta_exit) or (
+                    long.T * 365.25 < hedge.roll_left_days and eligible):
+                why = "roll-down" if hedge.exit == "rolldown" and delta_exit else "roll"
+                x = book.close_all(S, r, vx, idx[i], why + " sell")
+                route(x, why + " sell")
+                y = buy_put(why + " buy")
+                route(y, why + " buy")
+                hlog.append(_hlog(idx[i], why, S, x + y, row, prev_delta))
+        V = sum(core.values()) + trend + lev + cash + bucket + total("mark")
         # 3) execute orders decided on yesterday's close signal (prev) — identical to strategy.run
         if prev is not None and not c.fear_off:
             p, px, ma, recede = prev["p"], prev["qqq"], prev["ma200"], prev["vxn_recede"]
@@ -246,20 +336,27 @@ def run(D, c: Cfg, start=A_, end=B_, hedge: Hedge | None = None, surface=None, c
                     trend_lev = wl
                     trades.append((idx[i], "calm-lev " + ("on" if wl else "off"), trend))
         # 4) hedge entry in calm
-        if book is not None and prev is not None and not book.legs and not np.isnan(prev["p"]) \
-                and prev["p"] <= hedge.entry_p:
-            y = buy_put("entry")
-            if y:
-                route(y, "entry")
-                hlog.append(_hlog(idx[i], "entry", S, y, row, None))
-                if hedge.proceeds == "tbill" and bucket > 0:      # leftover P1 cash rejoins the powder
-                    cash += bucket
-                    bucket = 0.0
-        mark = book.mark(S, r, vx) if book is not None else 0.0
-        if book is not None:
-            prev_delta = book.leg_delta(0, S, r, vx) if book.legs else 0.0
+        for symbol, rung, book in books:
+            S, vx = market(symbol, row)
+            if hedge.call_m is not None and book.legs:
+                # Restore cover after a core trim by closing the entire package.
+                calls = sum(-leg.units for leg in book.legs if leg.right == "C")
+                if calls*S > core.get("qqq", 0) + 1e-7:
+                    route(book.close_all(S, r, vx, idx[i], "coverage close"), "coverage close")
+            if eligible and not book.legs:
+                y = buy_put("entry")
+                if y:
+                    route(y, "entry")
+                    hlog.append(_hlog(idx[i], "entry", S, y, row, None))
+                    if hedge.proceeds == "tbill" and bucket > 0:
+                        cash += bucket
+                        bucket = 0.0
+            prior_deltas[symbol, rung] = book.leg_delta(0, S, r, vx) if book.legs else 0
+        mark = total("mark")
         V = sum(core.values()) + trend + lev + cash + bucket + mark
         nav[i] = V
+        liquidation[i] = V - mark + total("liquidation")
+
         opt_mark[i] = mark
         rec["core"][i] = sum(core.values()) / V
         rec["trend"][i] = trend / V if trend_on else 0.0
@@ -267,17 +364,21 @@ def run(D, c: Cfg, start=A_, end=B_, hedge: Hedge | None = None, surface=None, c
         rec["cash"][i] = (cash + (0 if trend_on else trend)) / V
         rec["bucket"][i] = bucket / V
         rec["opt"][i] = mark / V
-        hd = book.delta(S, r, vx) / V if book is not None else 0.0
+        rec["held"][i] = any(b.legs for _, _, b in books)
+        hd = total("delta") / V
         rec["expo"][i] = rec["core"][i] + rec["trend"][i] * (2 if trend_lev else 1) + lev_mult * rec["lev"][i] + hd
         prev = row
     out = pd.DataFrame(rec, index=idx)
     out["nav"] = nav
+    out["liquidation_nav"] = liquidation
     out["opt_flow"] = opt_flows
     out["opt_mark"] = opt_mark
     out["hedge_pnl"] = (opt_flows.cumsum() + opt_mark)        # cumulative $ P&L of the option book
     tr = pd.DataFrame(trades, columns=["date", "action", "amount"])
     hl = pd.DataFrame(hlog)
-    return out, tr, hl, (book.ledger if book is not None else [])
+    for symbol, rung, book in books:
+        ledger.extend(dict(event, underlying=symbol, rung=rung) for event in book.ledger)
+    return out, tr, hl, sorted(ledger, key=lambda event: event["date"])
 
 
 def _hlog(t, event, S, cash, row, delta):
