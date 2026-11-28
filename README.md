@@ -5,7 +5,7 @@ A fear-tranche strategy on broad Nasdaq/S&P beta · Math 585 project (midterm No
 把"别人恐惧时我贪婪"做成有数据支撑、能在 QuantConnect 上回测和实盘的宽基指数策略。
 * **为什么是宽基**：SPIVA 2025 年报告中，20 年期约 93% 的主动大盘基金跑输标普 500；Lecture 9 的分散化 / CAPM 也说明单只股票的夏普低于指数。所以我们不选股，只研究**何时、用多大仓位**持有 QQQM / VOO。
 * **为什么情绪有 edge**：2008–2026 年 7 个恐慌指标都显示"越恐慌，之后 63 天 QQQ 收益越高"；在 VIX≥30 的每一天买入，之后一年平均 +33%（任意一天买入为 +13.5%）。但只在恐慌第一天满仓几乎没有优势，所以要**分批**。
-* **策略**：70% 底仓 + 30% 国债弹药。恐慌分批加底仓，极度恐慌且开始回落时少量买 QLD（以后换 QQQ LEAPS），恐慌消退卖杠杆、贪婪时减仓重建弹药，资金循环使用。
+* **策略**：70% 底仓 + 30% 国债弹药。（底仓比例与 QQQ/SPY 配比的网格检验见 allocation/：没有任何组合通过预设标准。）恐慌分批加底仓，极度恐慌且开始回落时少量买 QLD（以后换 QQQ LEAPS），恐慌消退卖杠杆、贪婪时减仓重建弹药，资金循环使用。
 * **现状**：2007–2026 年夏普 0.71、最大回撤 −39%（50/50 买入持有：每日再平衡 0.64 / −52%，一次买入不再平衡 0.66 / −52%）。夏普 >1 是后半学期的目标。
 
 **Thesis.** Broad index beta (QQQ / VOO) is the Sharpe-efficient core most investors can't beat
@@ -72,6 +72,12 @@ Earnings-based valuation inputs are lagged 3 months. Synthesized scores (dashboa
   then drift; the realized average is 65% QQQ of plain equity.
 * All 12 variants of the original log are reported (`results/strategy_variants.csv`, `figures/fig_trial_log.png`).
 
+## Allocation study (allocation/)
+Equity share 70/75/80% × five QQQ/SPY cores, as static mixes and as v2-style strategies (the 25 "v3 candidates").
+**Nothing beat frozen v2** after correcting for all 45 comparisons (smallest step-down p = 0.11). The best cell,
+80% equity with a 100% QQQ core (0.77 Sharpe, 14.4% CAGR, −39%), is not proven, and the panel's SPY understates SPY's
+return. Full write-up, results and how to run: [allocation/README.md](allocation/README.md).
+
 ## QuantConnect code: modes, parameters and fixes (qc/main.py)
 QC parameters: `core_target` 0.70/0.75/0.80, `ladder` FIXED (default, v2 sizes) or SCALED, `core` `QQQ:1`,
 `QQQ:0.8,VOO:0.2`, `QQQ:0.7,VOO:0.3`, `QQQ:0.5,VOO:0.5` or `VOO:1` (tested locally in the allocation study). Default values are unchanged (the bug fix below does change default-mode output). Not yet run on QC.
@@ -124,6 +130,7 @@ than it would protect a crash today, so the 2007–09 drawdown overstates curren
 ## Layout
 
 ```
+allocation/                  equity share × QQQ/SPY mix study and its v3 candidates (own README, results, figures, tests)
 data/build_dataset.py        one daily panel (QQQ 1999→2026-11, SPY, VIX, VXN, CNN F&G, T-bills, synthetic QLD/TQQQ)
 research/common.py           loads the panel, imports the live dashboard's scoring code unchanged
 research/evidence.py         IC + bootstrap, quintiles, event study, regimes, CAPE, SPIVA  → figures/, results/
@@ -151,7 +158,8 @@ Reproduce (Python ≥3.10, `pip install -r requirements.txt`, ~1 min):
 ```
 python data/build_dataset.py && python research/evidence.py && python research/strategy.py \
   && python research/strategy_figs.py && python research/edge_study.py \
-  && python research/edge_figs.py && python -m pytest tests
+  && python research/edge_figs.py && python allocation/research/allocation_study.py \
+  && python allocation/research/allocation_figs.py && python -m pytest tests allocation/tests
 ```
 
 ## QuantConnect hand-off — TODO list for teammates
