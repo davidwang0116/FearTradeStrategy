@@ -1,7 +1,7 @@
 # FearTradeStrategy — Buying Blood, Not Knives
 A fear-tranche strategy on broad Nasdaq/S&P beta · Math 585 project (midterm Nov 16, 2026; live paper trading after)
 
-[Integration results](integration/README.md) cover the frozen and corrected v2 baselines, the eight allocation, VIX and put combinations, and the QuantConnect execution checks.
+[Integration results](integration/README.md) cover the frozen and corrected v2 baselines, the eight modeled configurations, the 2020–2026 slice, and a fresh-start replay. [QuantConnect validation](integration/QUANTCONNECT.md) documents the unhedged cloud runs, matched stress-window tests, and historical option-quote audit.
 
 ## 项目简介（中文）
 把"别人恐惧时我贪婪"做成有数据支撑、能在 QuantConnect 上回测和实盘的宽基指数策略。
@@ -47,11 +47,9 @@ Earnings-based valuation inputs are lagged 3 months. Synthesized scores (dashboa
 All code, results, figures, the QC audit notebook and tests for this study now live in `options/protective_put/`; see its
 [README](options/protective_put/README.md). The next-stage experiments (141 setups) are written up in
 [`options/protective_put/results/extensions/REPORT.md`](options/protective_put/results/extensions/REPORT.md).
-**Status:** model-priced from VXN with a provisional volatility surface. Nothing here goes into v3 until the QC
-steps run:
-1. Stage 0: the unhedged QC run matches frozen v2.
-2. Stage 1: `options/protective_put/qc/options_quote_audit.ipynb` checks every model trade against real 2012–2026 QQQ quotes and fits the
-   surface, which `options/protective_put/research/options_model.py` then loads automatically.
+The standalone study uses model prices from a provisional VXN-based volatility surface. [QuantConnect validation](integration/QUANTCONNECT.md) records four unhedged cloud runs, two matched stress tests and 84 simulated hedged fills audited against historical quotes.
+
+Before using the overlay in v3, extend the [quote-audit notebook](options/protective_put/qc/options_quote_audit.ipynb) to cover the remaining model trades and calibrate the surface on a broader quote sample. The full-window hedge comparison still needs paired runs with the same raw equity prices, reserve and execution settings.
 
 2008 stays a model result, because QC option quotes start in 2012.
 
@@ -152,7 +150,7 @@ return. Full write-up, results and how to run: [allocation/README.md](allocation
 
 ## QuantConnect code: modes, parameters and fixes (qc/main.py)
 QC parameters: `core_target` 0.70/0.75/0.80, `ladder` FIXED (default, v2 sizes) or SCALED, `core` `QQQ:1`,
-`QQQ:0.8,VOO:0.2`, `QQQ:0.7,VOO:0.3`, `QQQ:0.5,VOO:0.5` or `VOO:1` (tested locally in the allocation study). Default values are unchanged (the bug fix below does change default-mode output). Not yet run on QC.
+`QQQ:0.8,VOO:0.2`, `QQQ:0.7,VOO:0.3`, `QQQ:0.5,VOO:0.5` or `VOO:1` (tested locally in the allocation study). Default values are unchanged (the bug fix below does change default-mode output). The [unhedged cloud run table](integration/QUANTCONNECT.md#unhedged-baseline) lists the configurations exercised on QuantConnect.
 QC fills at the next open, local at the next close. **Live v2 is the 50/50 headline** (team answer, Nov 25), the comparator
 above. QC's default core is `QQQ:1`, so 50/50 must be set explicitly (`core=QQQ:0.5,VOO:0.5`, or QQQM). Even then
 qc/main.py is not the headline: its trend half holds the basket and resets on events, which locally is the 70% / 50/50
@@ -161,7 +159,7 @@ cell (Sharpe 0.68, CAGR 11.1%), not 0.71 / 11.8%. Compare a default-mode QC run 
 `sleeves=HEADLINE` (default `BASKET`) makes qc/main.py follow the headline: QQQ trend half, drifting core weights, parked
 T-bills kept apart from powder, core `QQQ:0.5,VOO:0.5`. On an offline harness (tests/qc_harness.py, NOT LEAN: fractional
 shares, next-close fills, local signals) it gives Sharpe 0.707, CAGR 11.8%, max drawdown −39%, daily correlation 0.9999
-with research/strategy.py (local v2: 0.707). Not yet run on QuantConnect.
+with research/strategy.py (local v2: 0.707). The [adjusted-price cloud comparison](integration/QUANTCONNECT.md#unhedged-baseline) includes a `HEADLINE` control with QQQ/SPY.
 
 **Fixed Nov 25: two bugs in the default `BASKET` mode** (both in the original commit e218c91, not in the VIX-entry work).
 (1) Opening orders are queued for the next bar, but `_drift_book` re-based the book on the same bar, from empty holdings,
@@ -241,11 +239,11 @@ pandas ≥ 2.2 is needed (the code uses the "ME"/"YE" frequency aliases).
 
 Run the [VIX entry study](vix_entry/README.md) with `python vix_entry/research/analyze_vix.py`. Its results and write-up are in [`vix_entry/`](vix_entry/SUMMARY.md).
 
-## QuantConnect hand-off — TODO list for teammates
+## QuantConnect hand-off
 
-Upload `qc/main.py`, `qc/signals.py`, and `qc/hedge.py` as one project. Parameters (`core`, `lev`, `tranche_p`, …) are QC parameters.
+[QuantConnect validation](integration/QUANTCONNECT.md) records the completed runs, their settings where documented, and the matched full-window comparison still to do. Upload `qc/main.py`, `qc/signals.py`, and `qc/hedge.py` as one project. Parameters (`core`, `lev`, `tranche_p`, …) are QC parameters.
 
-**First QC run checklist** (none of this is verifiable offline):
+**Checklist for reproducing or extending the cloud runs**
 1. `[PROBE]`: QQQ history from 1999-03-10, VXN from 2008-01-03, VIX from 1999, composite values from 2000-03-08. If
    `initialize` raises "composite history starts …", QC's VIX or QQQ history is shorter than assumed.
 2. `[SIGNAL]` composite and p on a few dates against results/signal_reference.csv and research's p.
@@ -253,7 +251,7 @@ Upload `qc/main.py`, `qc/signals.py`, and `qc/hedge.py` as one project. Paramete
 
 | # | Task | Why | Done when |
 |---|---|---|---|
-| 0 | **Probe + parity.** Run `main.py` 2011→now; compare `[SIGNAL]` log lines to `results/signal_reference.csv` | local data ≠ QC data | composite within ±1 point on spot dates |
+| 0 | **Probe + parity.** Reproduce the [2012–2026 unhedged run](integration/QUANTCONNECT.md#unhedged-baseline) and compare signal logs on the six audit dates | cloud and local data and fills differ | five dates within ±1 point in the recorded run. Investigate the September 11, 2026 VXN difference |
 | 1 | **Credit & macro signals**: HY OAS (`BAMLH0A0HYM2`), real 10y (`DFII10`), NFCI via QC FRED | brief §4.3 ★★★ | IC table; *check start date* — FRED cut ICE series to 3 years in Apr 2026 |
 | 2 | **VIX term structure** (VIX/VIX3M, VIX9D), VVIX, SKEW, VXN−VIX | best short-horizon fear gauges | IC + incremental t-stat vs composite (notebook §5) |
 | 3 | **AAII, put/call, CNN F&G** via Object Store | survey / positioning fear | same; mind publication lags |
