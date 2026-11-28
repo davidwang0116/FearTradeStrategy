@@ -100,3 +100,47 @@ def composite_frame(close, vxn, fgi=None, val_score=None):
 def expanding_pct(series, min_periods=504):
     """Causal percentile of each value within its own history (0-1)."""
     return series.expanding(min_periods).rank(pct=True)
+
+
+# ---- seeding the percentile history in QC (research ranks against every composite value since 2000-03-08) ----
+SEED_FROM = "1999-03-10"              # first QQQ date in data/panel.csv
+SEED_LATEST_START = "2001-06-30"      # a seed that starts later than this is too short to match research
+# QC's VXN starts 2008-01-03. data/build_dataset.py back-fills earlier days as VIX x the 2008-2012 median VXN/VIX
+# ratio; QC must do the same or its early composites, and so every percentile, differ from research.
+VXN_VIX_RATIO = 1.055526132572263
+
+
+def backfill_vxn(vxn, vix):
+    """VXN closes, with days before the first VXN close filled as VIX x VXN_VIX_RATIO (as in data/build_dataset.py)."""
+    vxn, vix = vxn.dropna(), vix.dropna()
+    if not len(vix):
+        return vxn
+    pre = vix if not len(vxn) else vix[vix.index < vxn.index[0]]
+    return pd.concat([pre * VXN_VIX_RATIO, vxn]).sort_index()
+
+
+def pct_of(hist, x, min_periods=504):
+    """expanding_pct for one new value: average rank of x among hist + [x], NaN with fewer than min_periods values."""
+    h = np.asarray(hist, dtype=float)
+    if len(h) + 1 < min_periods or x != x:
+        return float("nan")
+    return float(((h < x).sum() + ((h == x).sum() + 2) / 2) / (len(h) + 1))
+
+
+def close_series(hist, sym):
+    """Daily close series (normalised dates, no duplicates) from a QC history frame indexed by (symbol, time)."""
+    if hist is None or hist.empty:
+        return pd.Series(dtype=float, index=pd.DatetimeIndex([]))
+    s = hist.loc[sym]["close"].astype(float).dropna()
+    s.index = pd.to_datetime(s.index).normalize()
+    return s[~s.index.duplicated(keep="last")].sort_index()
+
+
+def seed_composite(close, vxn, allow_short=False):
+    """Composite history to rank against. Raises if it starts after SEED_LATEST_START (unless allow_short)."""
+    comp = composite_frame(close, vxn)["composite"].dropna() if len(close) and len(vxn) else pd.Series(dtype=float)
+    first = comp.index[0] if len(comp) else None
+    if not allow_short and (first is None or first > pd.Timestamp(SEED_LATEST_START)):
+        raise ValueError(f"composite history starts {first}, after {SEED_LATEST_START}: percentiles would not match "
+                         "research. Check QQQ/VXN history depth, or set allow_short_seed=1 to run anyway.")
+    return comp

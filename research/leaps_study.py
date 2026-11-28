@@ -102,9 +102,14 @@ class Leaps:
         return du * p * (1 - SPREAD)
 
     def cost_for_dollar_delta(self, S, r, vxn, dd):
-        T = self.T0
-        K = strike_for(S, T, r, vxn, self.delta_t)
-        p, d = bs(S, K, T, r, iv_of(S, K, T, vxn))
+        """Premium that buys dd of dollar delta: of the HELD contract when topping up (buy() adds to it),
+        of a fresh target-delta contract when flat."""
+        if self.units > 0:
+            p, d = self.price(S, r, vxn)
+        else:
+            T = self.T0
+            K = strike_for(S, T, r, vxn, self.delta_t)
+            p, d = bs(S, K, T, r, iv_of(S, K, T, vxn))
         return dd / (d * S) * p / (1 - SPREAD)
 
     def sell(self, S, r, vxn):

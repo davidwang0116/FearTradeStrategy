@@ -58,7 +58,8 @@ class Top10DollarVolume(QCAlgorithm):
         eq.sort(key=lambda f: f.dollar_volume, reverse=True)
         out, seen = [], set()
         for f in eq:
-            cid = f.company_profile.company_id if f.company_profile else str(f.symbol)   # one share class per company
+            # one share class per company; LEAN keeps the company id on company_reference (company_profile has none)
+            cid = f.company_reference.company_id or str(f.symbol)
             if cid in seen:
                 continue
             seen.add(cid); out.append(f.symbol)
