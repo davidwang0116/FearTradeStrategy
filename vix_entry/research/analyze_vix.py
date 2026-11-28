@@ -5,17 +5,15 @@ import argparse
 from itertools import product
 import json
 from pathlib import Path
-import sys
 
 import numpy as np
 import pandas as pd
 
 from indicators import EASING_DAYS, FILTERS, FLOORS, RANK_CUTOFFS, RANK_WINDOWS, build_features, entry_mask
 from trades import episode_entries, signal_frequency
+# Puts the repo's research/ on the path. The portfolio engine is imported only when a funded run needs it.
+from vix_paths import INPUTS, PANEL, RESULTS, VIX3M, VIX_OHLC
 
-ROOT = Path(__file__).resolve().parents[2]
-# The portfolio engine and its shared helpers are imported only when a funded run needs them.
-sys.path.insert(1, str(ROOT / "research"))
 HOLD = 63
 PERIODS = ("training", "later", "all")
 BASELINE = {"floor": 24, "easing": 20}
@@ -422,11 +420,12 @@ def input_coverage(frame):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--panel", type=Path, default=ROOT / "data/panel.csv")
-    parser.add_argument("--vix-ohlc", type=Path, default=ROOT / "data/raw/vix_daily.csv")
-    parser.add_argument("--inputs", type=Path, default=ROOT / "data/raw/vix_entry")
+    parser.add_argument("--panel", type=Path, default=PANEL)
+    parser.add_argument("--vix-ohlc", type=Path, default=VIX_OHLC)
+    parser.add_argument("--inputs", type=Path, default=INPUTS, help="Folder with the optional QQQE and credit files")
+    parser.add_argument("--vix3m", type=Path, default=VIX3M, help="Cboe VIX3M history; rules that need it are left out if missing")
     parser.add_argument("--constituents", type=Path, help="Daily date, security, close, member CSV")
-    parser.add_argument("--output", type=Path, default=ROOT / "results/vix_entry")
+    parser.add_argument("--output", type=Path, default=RESULTS)
     parser.add_argument("--start", type=pd.Timestamp, default=pd.Timestamp("2008-01-03"))
     parser.add_argument("--split", type=pd.Timestamp, default=pd.Timestamp("2020-01-01"))
     parser.add_argument("--skip-portfolio", action="store_true")
@@ -439,7 +438,7 @@ def main():
             or not panel.index.is_unique or not panel.index.is_monotonic_increasing or len(panel) <= HOLD + 1
             or not np.isfinite(panel["qqq"]).all() or not panel["qqq"].gt(0).all()):
         parser.error("The panel needs unique ascending dates and a complete positive QQQ price history.")
-    features = build_features(panel, args.inputs, args.vix_ohlc, args.constituents)
+    features = build_features(panel, args.inputs, args.vix_ohlc, args.constituents, args.vix3m)
     frame = outcomes(panel, args.start, args.split, features)
     if len(frame) < 5:
         parser.error("At least five eligible sessions with complete rank and outcome windows are required.")

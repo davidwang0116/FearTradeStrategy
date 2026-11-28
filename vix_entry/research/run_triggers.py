@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analyze_vix import ROOT
+from vix_paths import INPUTS, RESULTS, VIX3M, VIX_OHLC
 from indicators import build_features, entry_mask, read_daily
 from run_tactical import SPLIT, START, build_markets, portfolio_row, sample_sessions
 from tactical import COST, EXITS, episode_triggers, paired, passes, settle_exit
@@ -81,6 +81,9 @@ def signal_markets(base, features, vix_rank, rules):
     return markets
 
 
+QUIET_RESET = "21 sessions without a signal"
+
+
 def quiet_starts(market):
     """First signal after at least 21 sessions without one, the study's episode definition. Robustness only."""
     hits = np.flatnonzero(market.fear)
@@ -125,11 +128,12 @@ def standalone(markets, dates, starter=None):
     return pd.DataFrame(rows)
 
 
-def summarize_standalone(episodes, dates, rules):
+def summarize_standalone(episodes, dates, rules, reset=None):
+    """One row per signal and period. `reset` overrides the signal's own reset label, as for quiet-session episodes."""
     years = {period: len(sessions) / 252 for period, sessions in sample_sessions(dates).items()}
     rows = []
     for (rule, period), part in episodes.groupby(["rule", "period"], sort=False):
-        row = dict(rule=rule, period=period, reset=reset_label(rules[rule]), **paired(part["excess"], np.zeros(len(part))))
+        row = dict(rule=rule, period=period, reset=reset or reset_label(rules[rule]), **paired(part["excess"], np.zeros(len(part))))
         row.update(mean_pnl=part["pnl"].mean(), positive=float((part["pnl"] > 0).mean()), worst_mark=part["worst_mark"].mean(),
                    worst_trade=part["pnl"].min(), per_year=len(part) / years[period])
         row["passes"] = bool(passes(row) and row["n"] >= MINIMUM_EPISODES) if period == "training" else None
@@ -284,17 +288,17 @@ def portfolio_by_signal(markets, panel):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--inputs", type=Path, default=ROOT / "data/raw/vix_entry")
-    parser.add_argument("--output", type=Path, default=ROOT / "results/vix_entry")
+    parser.add_argument("--inputs", type=Path, default=INPUTS, help="Folder with the optional QQQE and credit files")
+    parser.add_argument("--vix3m", type=Path, default=VIX3M, help="Cboe VIX3M history; rules that need it are left out if missing")
+    parser.add_argument("--output", type=Path, default=RESULTS)
     args = parser.parse_args()
     from common import build_signals, load_panel
     from strategy import prepare
 
     panel = load_panel()
-    vix_path = ROOT / "data/raw/vix_daily.csv"
-    history = read_daily(vix_path, "DATE", "CLOSE")
-    features = build_features(panel, args.inputs, vix_path, None)
-    base = build_markets(panel, features, prepare(panel, build_signals(panel)), history, args.inputs)[BASE]
+    history = read_daily(VIX_OHLC, "DATE", "CLOSE")
+    features = build_features(panel, args.inputs, VIX_OHLC, None, args.vix3m)
+    base = build_markets(panel, features, prepare(panel, build_signals(panel)), history, args.vix3m)[BASE]
     vix_rank = history.expanding(504).rank(pct=True).reindex(panel.index).ffill(limit=3)
     rules = signal_rules()
     markets = signal_markets(base, features, vix_rank, rules)
@@ -305,7 +309,7 @@ def main():
     family, single = family_test(markets, dates, close, rules)
     summary["shift_p"] = [single.get(rule) if period == "training" else None for rule, period in zip(summary["rule"], summary["period"])]
     pairs = paired_with_baseline(base, markets, dates, rules)
-    quiet = summarize_standalone(standalone(markets, dates, quiet_starts), dates, rules)
+    quiet = summarize_standalone(standalone(markets, dates, quiet_starts), dates, rules, QUIET_RESET)
     outputs = {"trigger_standalone_quiet": quiet, "trigger_episodes": episodes, "trigger_standalone": summary, "trigger_pairs_episodes": pairs,
                "trigger_pairs": summarize_paired(pairs), "trigger_exits": exits_by_signal(markets, dates),
                "trigger_portfolio": portfolio_by_signal(markets, panel), "trigger_family": pd.DataFrame([family])}

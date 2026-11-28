@@ -8,9 +8,9 @@ import pandas as pd
 import pytest
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "research"))
-sys.path.insert(0, str(ROOT / "research" / "vix_entry"))
+sys.path.insert(0, str(ROOT / "vix_entry" / "research"))
 from analyze_vix import COMPOSITE, NO_TRANCHES, episode_concentration, episode_outcomes, episode_starts, first_breakout, outcome_summary, outcomes, portfolio_runs
 from indicators import constituent_breadth, entry_mask
 from trades import episode_table, frequency, spaced_entries, trade_path

@@ -523,14 +523,15 @@ None of the 252 training combinations of signal and exit (X2, X3a, X4a, X5a, X6,
 - The funded controls were run and left out. The advantage over no-tranche disappears when holdings carry forward.
 - 1,188 configurations are 1,116 distinct rules.
 
-**Corrected after an implementation review:**
+**Corrected after an implementation review ([IMPLEMENTATION_REVIEW.md](IMPLEMENTATION_REVIEW.md)):**
 
 - The VIX3M signals were compared with an average date from before VIX3M existed. Their training excess falls from +2.1 to +1.6 (above VIX3M) and from +3.0 to +2.5 (at or below). No signal changes between passing and not.
 - E6 cancels on calm, as drafted. The uncancelled control E6u was added.
 - Cancelled versions of E1, E1v and E3 were added, and profit on the reserve is shown next to timing value.
 - Holding 126 sessions is compared directly with selling at 63.
 - The bootstrap and the reported Sharpe now share a formula. No figure in this file changes.
-- `run_tactical.py` and `run_triggers.py` run without the optional VIX3M file.
+- `run_tactical.py` and `run_triggers.py` run without the VIX3M file.
+- The 21-quiet-session table carries its own reset label, and the dashboard shows the luck check only beside the episode definition it covers.
 - The composite first-tranche sentence in section 11 was backwards.
 
 **Added:** episode-weighted, largest-episode and training columns in the outcome table; composite and no-tranche controls; carried-forward runs; signal frequency and gaps; episode entries and 63-session outcomes; a funded trade list; and tests.
@@ -545,25 +546,32 @@ None of the 252 training combinations of signal and exit (X2, X3a, X4a, X5a, X6,
 
 ## 15. Files and reproduction
 
-| File | Role |
+Everything is in the repo's `vix_entry/` folder.
+
+| Path in `vix_entry/` | Role |
 |---|---|
-| `research/vix_entry/indicators.py` | daily features and the entry gate |
-| `research/vix_entry/analyze_vix.py` | grid, experiments, outcome table, funded runs, dashboard export |
-| `research/vix_entry/trades.py` | signal frequency, entries and outcomes by episode |
-| `research/vix_entry/summary_tables.py` | prints most tables in sections 3 to 9 |
-| `research/vix_entry/tactical.py` | entry and exit rules, episode settlement, selection rule |
-| `research/vix_entry/tactical_portfolio.py` | funded sleeve outside the v2 engine |
-| `research/vix_entry/run_tactical.py` | runs the tests and writes `tactical_*.csv` |
-| `research/vix_entry/run_triggers.py` | every signal as the entry, writes `trigger_*.csv` |
-| `research/vix_entry/dashboard.html.in` | dashboard template |
-| `tests/test_vix_entry.py`, `tests/test_vix_tactical.py`, `tests/test_vix_triggers.py` | tests |
-| `results/vix_entry/` | CSVs and dashboard (gitignored) |
+| `research/indicators.py` | daily features and the entry gate |
+| `research/analyze_vix.py` | grid, experiments, outcome table, funded runs, dashboard export |
+| `research/trades.py` | signal frequency, entries and outcomes by episode |
+| `research/summary_tables.py` | prints most tables in sections 3 to 9 |
+| `research/tactical.py` | entry and exit rules, episode settlement, selection rule |
+| `research/tactical_portfolio.py` | funded sleeve outside the v2 engine |
+| `research/run_tactical.py` | runs the tests and writes `tactical_*.csv` |
+| `research/run_triggers.py` | every signal as the entry, writes `trigger_*.csv` |
+| `research/dashboard.html.in` | dashboard template |
+| `research/vix_paths.py` | the study's folders; puts the repo's shared `research/` code on the import path |
+| `tests/` | `test_vix_entry.py`, `test_vix_tactical.py`, `test_vix_triggers.py` |
+| `results/` | the CSVs. The dashboard, `vix_signal_days.csv` and the two tactical ledgers are rebuilt locally and not in Git |
+| `data/` | optional QQQE and credit inputs, not in Git |
+
+The study also uses shared files that stay in place: `data/panel.csv`, `data/raw/vix_daily.csv`, `data/raw/VIX3M_History.csv`, `research/common.py` and `research/strategy.py`.
 
 ```sh
-python research/vix_entry/run_tactical.py
-python research/vix_entry/run_triggers.py
-python research/vix_entry/analyze_vix.py
-python research/vix_entry/summary_tables.py
+python vix_entry/research/run_tactical.py
+python vix_entry/research/run_triggers.py
+python vix_entry/research/analyze_vix.py
+python vix_entry/research/summary_tables.py
+python -m pytest -q vix_entry/tests
 ```
 
-`data/raw/vix_entry/` and `results/vix_entry/` are gitignored, so a fresh clone must download the inputs listed in [README.md](README.md). FRED publishes about three years of the credit series, so those rows will stop being reproducible from a new download.
+The QQQE and credit inputs are not in Git, so a fresh clone shows those experiments as unavailable until they are downloaded as listed in [README.md](README.md). FRED publishes about three years of the credit series, so those rows will stop being reproducible from a new download.

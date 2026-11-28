@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "research"))
-sys.path.insert(0, str(ROOT / "research" / "vix_entry"))
+sys.path.insert(0, str(ROOT / "vix_entry" / "research"))
 import tactical as t
 from indicators import term_spread
 from run_tactical import compare, evaluate_hold_lengths, split_episodes
@@ -125,9 +125,10 @@ def test_selling_at_63_earns_bills_while_the_longer_hold_stays_invested():
 
 def test_missing_vix3m_file_leaves_the_spread_unknown(tmp_path):
     vix = pd.Series([20., 21.], index=pd.bdate_range("2012-01-02", periods=2))
-    assert term_spread(vix, tmp_path).isna().all()
-    (tmp_path / "vix3m.csv").write_text("DATE,OPEN,HIGH,LOW,CLOSE\n01/03/2012,0,0,0,19.5\n")
-    assert term_spread(vix, tmp_path).iloc[1] == 1.5 and np.isnan(term_spread(vix, tmp_path).iloc[0])
+    path = tmp_path / "vix3m.csv"
+    assert term_spread(vix, path).isna().all()
+    path.write_text("DATE,OPEN,HIGH,LOW,CLOSE\n01/03/2012,0,0,0,19.5\n")
+    assert term_spread(vix, path).iloc[1] == 1.5 and np.isnan(term_spread(vix, path).iloc[0])
 
 
 def test_selection_rule_and_paired_summary():

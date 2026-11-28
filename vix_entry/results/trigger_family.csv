@@ -1,0 +1,2 @@
+signals_tested,best_signal,best_statistic,chance_of_best,passes_observed,passes_by_luck_mean,passes_by_luck_95th,chance_of_this_many_passes
+26,VIX >= 24 + VIX above VIX3M,1.003812845484699,0.7164128595600677,11,7.2771573604060915,21.0,0.27140439932318106

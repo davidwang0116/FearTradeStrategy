@@ -3,5 +3,8 @@ __pycache__/
 results/strategy_curves.pkl
 .ipynb_checkpoints/
 .DS_Store
-/data/raw/vix_entry/
-/results/vix_entry/
+# VIX entry study: optional inputs and the large rebuilt outputs stay local
+/vix_entry/data/
+/vix_entry/results/vix_signal_dashboard.html
+/vix_entry/results/vix_signal_days.csv
+/vix_entry/results/tactical_*_ledger.csv

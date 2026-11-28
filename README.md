@@ -73,7 +73,7 @@ research/evidence.py         IC + bootstrap, quintiles, event study, regimes, CA
 research/strategy.py         fixed-capital engine + all variants (pre-registered rules in the docstring)
 research/strategy_figs.py    equity/drawdown, allocation, trial log, leverage-instrument comparison
 research/edge_study.py       per-indicator trading edge (1y vs any day) and 2x-DCA edge (rolling 5y plans) → results/edge_*.csv
-research/vix_entry/          VIX entry grid, confirmation tests, funded comparisons and offline dashboard
+vix_entry/                   VIX entry study: code, results, tests and offline dashboard in one folder
 research/edge_figs.py        fig_edge_trading.png, fig_edge_dca.png
 research/vol_selling.py      VRP by fear level; cash-secured puts / spreads, standalone and on the dry powder
 research/top10_local.py      illustrative top-10 dollar-volume rules (biased sample)
@@ -94,7 +94,7 @@ python data/build_dataset.py && python research/evidence.py && python research/s
   && python research/edge_figs.py && python tests/test_signals_parity.py
 ```
 
-Run the [VIX entry study](research/vix_entry/README.md) with `python research/vix_entry/analyze_vix.py`.
+Run the [VIX entry study](vix_entry/README.md) with `python vix_entry/research/analyze_vix.py`. Its results and write-up are in [`vix_entry/`](vix_entry/SUMMARY.md).
 
 ## QuantConnect hand-off — TODO list for teammates
 

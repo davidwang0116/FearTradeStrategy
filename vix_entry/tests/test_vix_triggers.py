@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "research"))
-sys.path.insert(0, str(ROOT / "research" / "vix_entry"))
+sys.path.insert(0, str(ROOT / "vix_entry" / "research"))
 import run_triggers as r
 import tactical as t
 from test_vix_tactical import flags, market
@@ -22,6 +22,17 @@ def test_signal_grid_covers_every_combination_and_never_easing_alone():
     assert "easing 10d" not in rules
     assert len([n for n in rules if "rank >= 80%" in n and "easing" in n and not n.startswith("VIX")]) == 9
     assert all(options.get("floor") or options.get("rank") or options.get("confirmation") for options in rules.values())
+
+
+def test_summary_labels_each_signal_with_how_its_episodes_reset():
+    dates = pd.bdate_range("2008-01-03", "2021-12-31")
+    episodes = pd.DataFrame({"rule": ["floor"] * 3 + ["rank"] * 3, "period": "training", "excess": [.01, .02, -.01] * 2,
+                             "pnl": .03, "worst_mark": -.05})
+    rules = {"floor": dict(floor=24), "rank": dict(rank=80, window=252)}
+    own = r.summarize_standalone(episodes, dates, rules).set_index("rule")["reset"]
+    assert own.to_dict() == {"floor": "VIX at or below its median", "rank": "252d rank at or below 50%"}
+    quiet = r.summarize_standalone(episodes, dates, rules, r.QUIET_RESET)["reset"]
+    assert quiet.eq("21 sessions without a signal").all()
 
 
 def test_rank_rules_rearm_on_their_own_rank_and_floor_rules_on_the_vix_median():

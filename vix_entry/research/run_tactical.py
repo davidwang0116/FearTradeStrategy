@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analyze_vix import ROOT
+from vix_paths import INPUTS, RESULTS, VIX3M, VIX_OHLC
 from indicators import build_features, entry_mask, read_daily, term_spread
 from tactical_portfolio import block_bootstrap_sharpe, episode_low_reserve, matched_static, run_sleeve
 from tactical import (CONFIRMATIONS, EXIT_REFERENCE, EXITS, FIRST_ORDER, FIRST_ORDER_SENSITIVITY, HOLD_LENGTHS, Market,
@@ -32,7 +32,7 @@ WINDOWS = (63, 126)
 MAIN_TRIGGER = "VIX >= 24"
 
 
-def build_markets(panel, features, states, vix_history, inputs):
+def build_markets(panel, features, states, vix_history, vix3m):
     """One Market per trigger definition. VIX normalizes at its expanding median since 1990.
 
     The two sensitivity triggers normalize on their own gauge, so their names say so. The
@@ -41,7 +41,7 @@ def build_markets(panel, features, states, vix_history, inputs):
     """
     vix, close = panel["vix"], panel["qqq"]
     vix_rank = vix_history.expanding(504).rank(pct=True).reindex(panel.index).ffill(limit=3)
-    curve = term_spread(vix, inputs)
+    curve = term_spread(vix, vix3m)
     prior_high = close.shift().rolling(5).max()
     confirm = {
         "VIX easing 5d": vix.lt(vix.shift(5)), "VXN 15% below 10d high": panel["vxn"].le(.85 * panel["vxn"].rolling(10).max()),
@@ -215,17 +215,17 @@ def compare(ledger, baseline, metric):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--inputs", type=Path, default=ROOT / "data/raw/vix_entry")
-    parser.add_argument("--output", type=Path, default=ROOT / "results/vix_entry")
+    parser.add_argument("--inputs", type=Path, default=INPUTS, help="Folder with the optional QQQE and credit files")
+    parser.add_argument("--vix3m", type=Path, default=VIX3M, help="Cboe VIX3M history; rules that need it are left out if missing")
+    parser.add_argument("--output", type=Path, default=RESULTS)
     args = parser.parse_args()
 
     from common import build_signals, load_panel
     from strategy import prepare
 
     panel = load_panel()
-    vix_path = ROOT / "data/raw/vix_daily.csv"
-    features = build_features(panel, args.inputs, vix_path, None)
-    markets = build_markets(panel, features, prepare(panel, build_signals(panel)), read_daily(vix_path, "DATE", "CLOSE"), args.inputs)
+    features = build_features(panel, args.inputs, VIX_OHLC, None, args.vix3m)
+    markets = build_markets(panel, features, prepare(panel, build_signals(panel)), read_daily(VIX_OHLC, "DATE", "CLOSE"), args.vix3m)
     ledger = []
     for trigger, market in markets.items():
         for window in WINDOWS:

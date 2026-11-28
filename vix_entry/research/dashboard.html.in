@@ -456,22 +456,23 @@ el("tactical-download").addEventListener("click",() => saveRows("tactical_episod
 
 const firstRules = ["VIX >= 24","VIX >= 24 + easing 5d","VIX >= 24 + easing 10d","VIX >= 24 + easing 20d","504d rank >= 80%"];
 table("episode-first-table", ["Signal","New episode needs","Training episodes","Training excess","Later episodes","Later excess","Better, training","Better, later","Training without best","Later without best","Training return","Later return"],
-  firstRules.flatMap(rule => [["trigger_standalone",null],["trigger_standalone_quiet","21 sessions without a signal"]].flatMap(([name,label]) => {
+  firstRules.flatMap(rule => ["trigger_standalone","trigger_standalone_quiet"].flatMap(name => {
     const rows = (tactical[name] || []).filter(row => row.rule === rule);
     if (!rows.length) return [];
     const t = rows.find(row => row.period === "training") || {}, l = rows.find(row => row.period === "later") || {};
-    return [[rule === "VIX >= 24 + easing 20d" ? rule + " (reference)" : rule,label || rows[0].reset,num(t.n),spread(t.difference),num(l.n),spread(l.difference),pct(t.win_share),pct(l.win_share),
+    return [[rule === "VIX >= 24 + easing 20d" ? rule + " (reference)" : rule,rows[0].reset,num(t.n),spread(t.difference),num(l.n),spread(l.difference),pct(t.win_share),pct(l.win_share),
       spread(t.without_best),spread(l.without_best),pct(t.mean_pnl),pct(l.mean_pnl)]];
   })), "Run run_triggers.py first");
 
 const signalEpisodes = tactical.trigger_episodes || [];
 el("signals-rule").innerHTML = options([...new Set(signalEpisodes.map(row => row.rule))].map(name => [name,name]));
 const signalFamily = (tactical.trigger_family || [])[0];
-el("signals-family").hidden = !signalFamily;
 if (signalFamily) el("signals-family").textContent = `${signalFamily.signals_tested} signals have enough training episodes. ${signalFamily.passes_observed} pass the rule. Luck alone gives about ${signalFamily.passes_by_luck_mean.toFixed(1)} on average (95th percentile ${signalFamily.passes_by_luck_95th.toFixed(0)}), and the chance of this many or more is ${pct(signalFamily.chance_of_this_many_passes)}. The chance that the best of ${signalFamily.signals_tested} signals looks at least this good is ${pct(signalFamily.chance_of_best)}.`;
 function renderSignals() {
   const view = el("signals-view").value, sort = el("signals-sort").value;
   el("signals-definition").parentElement.hidden = view !== "standalone";
+  // The luck check covers the standalone test with the episode definition that decides.
+  el("signals-family").hidden = !signalFamily || view !== "standalone" || el("signals-definition").value !== "trigger_standalone";
   const index = rows => { const out = {}; rows.forEach(row => { (out[row.rule] ??= {})[row.period] = row; }); return out; };
   const key = row => sort === "train" ? row.training?.difference : row.later?.difference;
   const ordered = grouped => Object.entries(grouped).sort((a,b) => (key(b[1]) ?? -9) - (key(a[1]) ?? -9));
@@ -479,7 +480,7 @@ function renderSignals() {
     const grouped = index(tactical[el("signals-definition").value] || []);
     return table("signals-table", ["Signal","New episode needs","Training episodes","Training excess","90% interval","Better","Without best","Single-signal luck p","Passes","Later episodes","Later excess","Later better","Later without best","Episodes / year (later)","Training return","Mean worst close"],
       ordered(grouped).map(([name,row]) => { const t = row.training || {}, l = row.later || {};
-        return [name,el("signals-definition").value === "trigger_standalone" ? (t.reset || l.reset) : "21 sessions without a signal",num(t.n),spread(t.difference),t.low90 == null ? "—" : spread(t.low90) + " to " + spread(t.high90),pct(t.win_share),spread(t.without_best),
+        return [name,t.reset || l.reset,num(t.n),spread(t.difference),t.low90 == null ? "—" : spread(t.low90) + " to " + spread(t.high90),pct(t.win_share),spread(t.without_best),
           t.shift_p == null ? "—" : t.shift_p.toFixed(3),t.passes ? "Yes" : "No",num(l.n),spread(l.difference),pct(l.win_share),spread(l.without_best),decimal(l.per_year),pct(t.mean_pnl),pct(t.worst_mark)]; }), "Run run_triggers.py first");
   }
   if (view === "paired") {

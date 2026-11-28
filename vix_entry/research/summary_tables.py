@@ -7,8 +7,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analyze_vix import EXPERIMENTS, ROOT, describe_rule, episode_concentration, episode_outcomes
+from analyze_vix import EXPERIMENTS, describe_rule, episode_concentration, episode_outcomes
 from indicators import FILTERS, entry_mask
+from vix_paths import RESULTS
 
 
 def load_days(output):
@@ -79,7 +80,7 @@ def p_text(value):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=ROOT / "results/vix_entry")
+    parser.add_argument("--output", type=Path, default=RESULTS)
     days = load_days(parser.parse_args().output)
 
     print("### Quintiles\n\n| Quintile | VIX range | Training mean (days) | Later mean (days) |\n|---|---|---:|---:|")
