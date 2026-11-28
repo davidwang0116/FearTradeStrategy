@@ -79,14 +79,12 @@ class PutBook:
         self.K2 = self.K * (1 - self.width) if self.width else None
         self.units = notional / self.K
         p = bs_put(S, self.K, TENOR, r, put_iv(S, self.K, vxn))
-        cost = 0.0
+        prem = p * (1 - HAIRCUT) - MIN_TICK * S                   # sell the short leg at the bid
         if self.K2:
             p2 = bs_put(S, self.K2, TENOR, r, put_iv(S, self.K2, vxn))
-            cost = p2 * HAIRCUT + MIN_TICK * S          # pay the ask on the long leg
-            p -= p2
-        prem = self.units * (p * (1 - HAIRCUT) - MIN_TICK * S - cost)
+            prem -= p2 * (1 + HAIRCUT) + MIN_TICK * S             # buy the long leg at the ask
         self.left = TENOR_D
-        return prem
+        return self.units * prem
 
     def expire(self, S):
         pay = max(self.K - S, 0.0)

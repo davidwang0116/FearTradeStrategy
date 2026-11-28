@@ -83,6 +83,82 @@ def perf_stats(nav, rf=None, freq=252):
             "MaxDD": mdd, "Calmar": cagr / abs(mdd) if mdd < 0 else np.nan}
 
 
+def block_boot_delta(nav_a, nav_b, rf=None, block=63, n=2000, freq=252, seed=585):
+    """Paired moving-block bootstrap of A minus B on the same days (63-day blocks keep crashes together).
+    Returns {"dSharpe" | "dCAGR" | "dMaxDD": (point, 5th pct, 95th pct, share of draws <= 0)}."""
+    ra = nav_a.pct_change().dropna()
+    rb = nav_b.pct_change().reindex(ra.index).fillna(0.0)
+    rfd = (rf.reindex(ra.index).fillna(0.0) / freq) if rf is not None else pd.Series(0.0, index=ra.index)
+    A, B, R = ra.to_numpy(), rb.to_numpy(), rfd.to_numpy()
+    T = len(A)
+    rng = np.random.default_rng(seed)
+    starts = rng.integers(0, T - block, size=(n, int(np.ceil(T / block))))
+    ix = (starts[:, :, None] + np.arange(block)).reshape(n, -1)[:, :T]
+
+    def stats(x, r):
+        sh = (x - r).mean(axis=-1) / x.std(axis=-1) * np.sqrt(freq)
+        g = np.log1p(x).sum(axis=-1)
+        cagr = np.exp(g * freq / x.shape[-1]) - 1
+        w = np.exp(np.cumsum(np.log1p(x), axis=-1))
+        mdd = (w / np.maximum.accumulate(w, axis=-1) - 1).min(axis=-1)
+        return sh, cagr, mdd
+
+    pa, pb = stats(A, R), stats(B, R)
+    ba, bb = stats(A[ix], R[ix]), stats(B[ix], R[ix])
+    out = {}
+    for k, j in [("dSharpe", 0), ("dCAGR", 1), ("dMaxDD", 2)]:
+        d = ba[j] - bb[j]
+        out[k] = (float(pa[j] - pb[j]), float(np.quantile(d, 0.05)), float(np.quantile(d, 0.95)), float((d <= 0).mean()))
+    return out
+
+
 def savefig(fig, name):
     fig.savefig(FIG / name, dpi=200, bbox_inches="tight")
     plt.close(fig)
+
+
+# ---- paired block bootstrap with family-wise error control ----
+def block_boot_sharpes(R, rf, block=63, n=5000, seed=585):
+    """Joint moving-block bootstrap of annualised excess-return Sharpe ratios.
+
+    R: DataFrame of daily returns (one column per portfolio), rf: annual T-bill rate.
+    Every draw uses the SAME day blocks for all columns, so cross-correlations survive.
+    Returns (point estimates, n x K array of bootstrap Sharpes)."""
+    X = R.to_numpy(float)
+    ex = X - (rf.reindex(R.index).to_numpy(float) / 252)[:, None]
+    T, K = X.shape
+    nb, last = int(np.ceil(T / block)), T - (int(np.ceil(T / block)) - 1) * block
+    pre = [np.vstack([np.zeros(K), np.cumsum(a, axis=0)]) for a in (ex, X, X * X)]
+    rng = np.random.default_rng(seed)
+    st = rng.integers(0, T - block + 1, (n, nb))
+    en = st + block
+    en[:, -1] = st[:, -1] + last
+    sums = [np.stack([(p[en[b]] - p[st[b]]).sum(axis=0) for b in range(n)]) for p in pre]
+
+    def sharpe(sex, sx, sxx):
+        return sex / T / np.sqrt((sxx - sx * sx / T) / (T - 1)) * np.sqrt(252)
+    return sharpe(*[p[-1] for p in pre]), sharpe(*sums)
+
+
+def maxt_family(point, boot, alpha=0.05):
+    """Simultaneous one-sided inference for a family of differences (H0: diff <= 0).
+
+    point: length-J differences; boot: n x J bootstrap differences (joint draws).
+    Differences are studentised by their bootstrap SE and centred on the bootstrap mean
+    (the moving-block mean is not exactly the sample value). Returns a DataFrame with the
+    single-step max-t lower bound (decides), the Romano-Wolf step-down p-value (reported)
+    and the unadjusted one-sided bound (labelled as such)."""
+    point, boot = np.asarray(point, float), np.asarray(boot, float)
+    se = boot.std(axis=0, ddof=1)
+    ok = se > 1e-12
+    z = np.zeros_like(boot)
+    z[:, ok] = (boot[:, ok] - boot[:, ok].mean(axis=0)) / se[ok]
+    crit = np.quantile(z.max(axis=1), 1 - alpha)
+    unadj = np.quantile(z, 1 - alpha, axis=0)
+    t = np.where(ok, point / np.where(ok, se, 1), 0.0)
+    order, p, run_max = np.argsort(-t), np.ones(len(t)), 0.0
+    for r, j in enumerate(order):
+        run_max = max(run_max, (z[:, order[r:]].max(axis=1) >= t[j]).mean())
+        p[j] = run_max
+    return pd.DataFrame({"diff": point, "se": se, "t": t, "lb_simultaneous": point - crit * se,
+                         "p_stepdown": p, "lb_unadjusted": point - unadj * se}), crit

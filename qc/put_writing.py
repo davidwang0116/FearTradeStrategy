@@ -16,11 +16,12 @@ Signals use qc/signals.py (same fear composite as the deck, slide 5).
 STATUS: written offline, not yet run on QC.
 """
 from collections import deque
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
 
-from signals import composite_frame
+from signals import SEED_FROM, VXN_VIX_RATIO, backfill_vxn, close_series, composite_frame, pct_of, seed_composite
 
 
 class PutWriting(QCAlgorithm):
@@ -36,24 +37,30 @@ class PutWriting(QCAlgorithm):
         opt.set_filter(lambda u: u.include_weeklys().puts_only().strikes(-30, 2).expiration(25, 40))
         self.opt = opt.symbol
         self.vxn = self.add_index("VXN", Resolution.DAILY).symbol
-        self.px, self.vx = deque(maxlen=900), deque(maxlen=900)
-        hq = self.history(self.qqq, 900, Resolution.DAILY)
-        hv = self.history(self.vxn, 900, Resolution.DAILY)
-        for t, row in hq.loc[self.qqq].iterrows():
-            self.px.append((pd.Timestamp(t).normalize(), float(row["close"])))
-        for t, row in hv.loc[self.vxn].iterrows():
-            self.vx.append((pd.Timestamp(t).normalize(), float(row["close"])))
-        self.comp_hist = list(composite_frame(pd.Series(dict(self.px)), pd.Series(dict(self.vx)))["composite"].dropna())
+        self.vix = self.add_index("VIX", Resolution.DAILY).symbol     # fills VXN before 2008-01-03, as research does
+        # Rank against every composite since 2000, as research does (see qc/main.py); rolling inputs need 900 bars.
+        since = datetime.strptime(SEED_FROM, "%Y-%m-%d")
+        hist = lambda s: close_series(self.history([s], since, self.time, Resolution.DAILY), s)
+        px, vx_raw, vix = hist(self.qqq), hist(self.vxn), hist(self.vix)
+        self.vxn_seen = len(vx_raw) > 0
+        vx = backfill_vxn(vx_raw, vix)
+        self.px, self.vx = deque(zip(px.index, px.to_numpy()), maxlen=900), deque(zip(vx.index, vx.to_numpy()), maxlen=900)
+        allow = int(self.get_parameter("allow_short_seed") or 0) == 1
+        self.comp_hist = seed_composite(px, vx, allow_short=allow).tolist()
+        self.p_now = float("nan")
         self.next_sale = self.start_date
         self.set_benchmark(self.qqq)
 
-    def _signal(self):
+    def _update_fear(self):
+        """Every bar, whether or not a put is open, so the percentile history does not depend on past trades."""
         f = composite_frame(pd.Series(dict(self.px)).sort_index(), pd.Series(dict(self.vx)).sort_index())
         comp = float(f["composite"].iloc[-1])
+        self.p_now = pct_of(self.comp_hist, comp)
         if not np.isnan(comp):
             self.comp_hist.append(comp)
-        h = np.asarray(self.comp_hist)
-        p = float((h <= comp).mean()) if len(h) >= 504 else np.nan
+
+    def _signal(self):
+        p = self.p_now
         v = np.array([x for _, x in self.vx])
         recede = len(v) >= 10 and v[-1] <= 0.9 * v[-10:].max()
         med = np.median(v[-504:]) if len(v) >= 252 else np.nan
@@ -66,7 +73,12 @@ class PutWriting(QCAlgorithm):
         if data.bars.contains_key(self.qqq):
             self.px.append((pd.Timestamp(self.time.date()), float(data.bars[self.qqq].close)))
         if data.bars.contains_key(self.vxn):
+            self.vxn_seen = True
             self.vx.append((pd.Timestamp(self.time.date()), float(data.bars[self.vxn].close)))
+        elif not self.vxn_seen and data.bars.contains_key(self.vix):
+            self.vx.append((pd.Timestamp(self.time.date()), float(data.bars[self.vix].close) * VXN_VIX_RATIO))
+        if data.bars.contains_key(self.qqq):
+            self._update_fear()
         # close out any assigned shares
         if self.portfolio[self.qqq].quantity != 0:
             self.liquidate(self.qqq, tag="close assignment")
