@@ -1,6 +1,6 @@
 # QuantConnect execution validation
 
-The cloud runs used LEAN 2.5.0.0.18290 and $1 million of starting capital. The equity and index bars keep their trading-session dates. VIX arrived one hour after QQQ and VXN in the cloud backtest. The algorithm waits for the matching session and uses intraday ETF bars for market-on-open fills. A startup trace exposed an early sleeve reset while opening orders were still working. The final runs retain the trend sleeve and guard the allocation while ETF orders are pending.
+The unhedged baseline and matched stress tests used LEAN 2.5.0.0.18290 and $1 million of starting capital. The equity and index bars keep their trading-session dates. VIX arrived one hour after QQQ and VXN in the cloud backtest. The algorithm waits for the matching session and uses intraday ETF bars for market-on-open fills. A startup trace exposed an early sleeve reset while opening orders were still working. The final runs retain the trend sleeve and guard the allocation while ETF orders are pending.
 
 ## Unhedged baseline
 
@@ -50,6 +50,26 @@ The November 2 entry paid $15.81 for nine QQQ September 30, 2022 $329 puts again
 
 The option run submits against a current, two-sided quote and books premium, fees and sale proceeds from order events. LEAN supplies the portfolio mark. The test uses cash for the buffer and restricted proceeds. The local model credits T-bill interest and can cash-settle at expiry, while the cloud tries to close ahead of expiry and flags any delivery of QQQ shares. The opening-window check validates the observed quote and the simulated fill. It leaves fill capacity and market impact unmeasured. QuantConnect's listed US equity-option data start in January 2012. [US Equity Options dataset](https://www.quantconnect.com/data/algoseek-us-equity-options) · [LEAN time slices](https://www.quantconnect.com/docs/v2/writing-algorithms/key-concepts/time-modeling/timeslices)
 
+## Long-window hedged quote audit
+
+The companion `FearTradeStrategy_QuantConnect_Quote_Audit.csv` contains 84 completed simulated fills from two hedged runs. The first and last audited quote dates are January 5, 2012 and April 14, 2026. The first audited quote from 2020 onward is May 21, 2020.
+
+| Hedged portfolio | QuantConnect run | Total fills (buys / sells) | Fills since 2020 (buys / sells) |
+|---|---|---:|---:|
+| Corrected v2 + put | Logical Magenta Jellyfish | 42 (22 / 20) | 16 (8 / 8) |
+| Allocation + VIX + put | Creative Yellow Green Lemur | 42 (22 / 20) | 16 (8 / 8) |
+
+The audit compares each purchase's historical ask with the central model ask for the same QQQ put strike and expiry. The model uses QQQ spot from the quote minute and the previous VXN observation. The percentage gap is `100 × (historical ask / model ask − 1)`. Every audited buy filled at the recorded ask and every audited sell at the recorded bid in the simulations.
+
+| Sample | Buys above model ask | Median ask gap | Ask gap range | Median bid–ask spread / midpoint |
+|---|---:|---:|---:|---:|
+| All audited fills | 44 / 44 | +25.4% | +2.2% to +56.6% | 9.0% |
+| From 2020 onward | 16 / 16 | +31.2% | +8.9% to +56.6% | 7.0% |
+
+Spreads use all audited fills in each sample. Some trades in the two portfolios used the same contract on the same date. The counts cover completed fills. Attempted orders, quote coverage between fills, and daily marks are needed to assess execution and net hedge cost. The CSV SHA-256 is `6009b512fc8398115bbf1db00c766c868dbd3b614ce6ab4825e2b1c21a3c47d5`.
+
+The full run parameter exports and matched daily equity are pending. The dates above describe the audit records.
+
 ## Reproduction
 
 Upload `qc/main.py`, `qc/signals.py`, and `qc/hedge.py` as one Python project. The bundler also generates a single file for the web editor.
@@ -71,4 +91,10 @@ python tools/build_qc_algorithm.py /tmp/fear_qc_main.py \
 | Fear-exit audit | 2020 put settings plus `hedge_exit=fear`, `end_date=2020-06-30` |
 | 2022 matched pair | Raw control and put settings with `start_date=2021-11-01` and `end_date=2022-03-31` |
 
-Compare `[DATA SUMMARY]`, `[AUDIT]`, `[OPT ORDER]`, `[OPT FILL]` and `[OPT SUMMARY]` in the backtest log. A full-window claim for the put requires a same-data 2012–2026 comparison with historical bid/ask quotes and a tighter liquidity analysis. The comparative 2007–2026 put results in this branch use modeled prices.
+Compare `[DATA SUMMARY]`, `[AUDIT]`, `[OPT ORDER]`, `[OPT FILL]` and `[OPT SUMMARY]` in the backtest log. The comparative 2007–2026 put results in this branch use modeled prices.
+
+### Matched full-window comparison
+
+Use the same dates, starting capital, brokerage, fees, leverage and reserve within each pair. For a new pair that follows the matched stress-test settings, set `price_mode=raw` and `powder=CASH` in both arms. Use `overlay=NONE` for the control and `overlay=HEDGE12M`, `hedge_exit=hold` and `hedge_proceeds=tbill` for the put arm. Run one pair with the Corrected v2 equity settings and one with both the Allocation and VIX settings above. With a cash reserve, `hedge_proceeds=tbill` keeps sale proceeds in the restricted cash balance.
+
+Record the run IDs, engine version and parameter exports with the results. Export session-level equity for each arm, including the December 31, 2019 value to calculate the continuous 2020–2026 slice. Also export attempted orders, fill logs, unavailable or stale quotes and daily marks for held contracts. This produces a comparison on common data and assumptions. The earlier adjusted-price BIL runs used a different setup.
