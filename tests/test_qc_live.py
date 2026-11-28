@@ -83,7 +83,8 @@ def test_headline_2020_exit_matches_local(data):
     _, tr = run(D, V2, A, B)
     qc = [m.split()[1] for m in a.logs if "lev exit" in m]
     local = tr[tr.action.str.startswith("sell")].date.dt.strftime("%Y-%m-%d").tolist()
-    assert "2020-04-29" in qc and "2020-04-29" in local
+    # The QC log dates the close decision. The research ledger dates the next-close fill.
+    assert "2020-04-29" in qc and "2020-04-30" in local
 
 
 # ---------------------------------------------------------------- restarts

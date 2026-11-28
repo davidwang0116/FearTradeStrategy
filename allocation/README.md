@@ -2,7 +2,7 @@
 
 How much of the portfolio should sit in stocks (70%, 75% or 80%), and how should the core split between QQQ and SPY?
 The grid and the decision rule were fixed before any cell was run, and every cell is reported. The same grid supplies the
-25 "v3 candidates" that were tested against frozen v2.
+25 "v3 candidates" that were tested against corrected v2. The [original branch](https://github.com/davidwang0116/FearTradeStrategy/tree/68037ec23ea796c5216c9a201d742b1ae9546c1f/allocation) records the original run.
 
 ## Layout
 
@@ -41,8 +41,9 @@ The candidates follow what `qc/main.py` actually trades, which differs from froz
 | QQQ share of the core | 50% nominal | 0, 50, 70, 80 or 100% |
 | Tranche / QLD buy / QLD cap | Fixed 7.5% / 10% / 30% | Fixed, or scaled to the reserve: ¼ / ⅓ / all of it |
 
-Going from v2 to the like-for-like 70% / 50/50 cell costs 0.026 Sharpe: −0.020 from the basket trend half and −0.005 from
-event resets (`results/allocation_bridge.csv`).
+With take-profit and holding age evaluated at the signal close, the 70% / 50/50 candidate has 0.682 Sharpe versus
+0.707 for corrected v2. The bridge attributes −0.020 to the basket trend half and −0.005 to event resets.
+[Allocation bridge](results/allocation_bridge.csv)
 
 ## Results
 40 cells: equity 70/75/80% × core 100% SPY, 50/50, 70/30, 80/20, 100% QQQ, as static monthly-rebalanced mixes (15),

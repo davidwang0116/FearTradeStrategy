@@ -83,6 +83,35 @@ def perf_stats(nav, rf=None, freq=252):
             "MaxDD": mdd, "Calmar": cagr / abs(mdd) if mdd < 0 else np.nan}
 
 
+def block_boot_delta(nav_a, nav_b, rf=None, block=63, n=2000, freq=252, seed=585):
+    """Paired moving-block bootstrap of A minus B on the same days (63-day blocks keep crashes together).
+    Returns {"dSharpe" | "dCAGR" | "dMaxDD": (point, 5th pct, 95th pct, share of draws <= 0)}."""
+    ra = nav_a.pct_change().dropna()
+    rb = nav_b.pct_change().reindex(ra.index).fillna(0.0)
+    rfd = (rf.reindex(ra.index).fillna(0.0) / freq) if rf is not None else pd.Series(0.0, index=ra.index)
+    A, B, R = ra.to_numpy(), rb.to_numpy(), rfd.to_numpy()
+    T = len(A)
+    rng = np.random.default_rng(seed)
+    starts = rng.integers(0, T - block, size=(n, int(np.ceil(T / block))))
+    ix = (starts[:, :, None] + np.arange(block)).reshape(n, -1)[:, :T]
+
+    def stats(x, r):
+        sh = (x - r).mean(axis=-1) / x.std(axis=-1) * np.sqrt(freq)
+        g = np.log1p(x).sum(axis=-1)
+        cagr = np.exp(g * freq / x.shape[-1]) - 1
+        w = np.exp(np.cumsum(np.log1p(x), axis=-1))
+        mdd = (w / np.maximum.accumulate(w, axis=-1) - 1).min(axis=-1)
+        return sh, cagr, mdd
+
+    pa, pb = stats(A, R), stats(B, R)
+    ba, bb = stats(A[ix], R[ix]), stats(B[ix], R[ix])
+    out = {}
+    for k, j in [("dSharpe", 0), ("dCAGR", 1), ("dMaxDD", 2)]:
+        d = ba[j] - bb[j]
+        out[k] = (float(pa[j] - pb[j]), float(np.quantile(d, 0.05)), float(np.quantile(d, 0.95)), float((d <= 0).mean()))
+    return out
+
+
 def savefig(fig, name):
     fig.savefig(FIG / name, dpi=200, bbox_inches="tight")
     plt.close(fig)

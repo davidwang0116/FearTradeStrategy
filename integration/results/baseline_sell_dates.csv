@@ -1,0 +1,5 @@
+test,timing,sale_date
+"A: QQQ core, 2002-03 → 2026-09",same,2020-04-29
+"A: QQQ core, 2002-03 → 2026-09",signal,2020-04-30
+"B: QQQ+SPY core, 2007-02 → 2026-09",same,2020-04-29
+"B: QQQ+SPY core, 2007-02 → 2026-09",signal,2020-04-30

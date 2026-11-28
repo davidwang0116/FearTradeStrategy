@@ -74,6 +74,15 @@ class Cfg:
     lev_exit_close: str = "same"           # "same" (v2) | "signal": take-profit and max-days read at the signal close
 
     def __post_init__(self):
+        names = [name for name, _ in self.core]
+        weights = [weight for _, weight in self.core]
+        if (not names or len(set(names)) != len(names) or not all(w > 0 for w in weights)
+                or not np.isclose(sum(weights), 1, rtol=0, atol=1e-10)):
+            raise ValueError("core needs distinct assets with positive weights that sum to one")
+        if not (0 <= self.core_target <= 1 and 0 <= self.tranche <= 1 and 0 <= self.lev_size <= self.lev_cap <= 1
+                and 0 <= self.cost < 1 and 0 <= self.lev_cost < 1 and 0 < self.tranche_step <= 1
+                and self.tranche_gap >= 1 and self.lev_max_days >= 1):
+            raise ValueError("invalid target, order sizing, costs or timing")
         if self.trend_asset not in ("qqq", "core") or self.basket_reset not in ("none", "event"):
             raise ValueError(f"bad trend_asset/basket_reset: {self.trend_asset}, {self.basket_reset}")
         if self.lev_exit_close not in ("same", "signal"):
@@ -98,11 +107,20 @@ def prepare(P, S):
     return D
 
 
-def run(D, c: Cfg, start, end, capital=100_000.0):
+def run(D, c: Cfg, start, end, capital=100_000.0, *, tranche_entry=None, overlay=None):
+    """Simulate next-close execution with an optional core tranche gate and funded put overlay."""
+    if not np.isfinite(capital) or capital <= 0:
+        raise ValueError("capital must be positive and finite")
+    sessions = D.index
     D = D.loc[start:end].copy()
     D = D.dropna(subset=["r_qqq"] + [f"r_{k}" for k, _ in c.core])
+    gate = D["p"].ge(c.tranche_p) if tranche_entry is None else (
+        tranche_entry.reindex(D.index).astype("boolean").fillna(False))
+    D["tranche_entry"] = gate
     n = len(D)
     idx = D.index
+    if overlay is not None:
+        overlay.start(sessions, D)
     # holdings in dollars
     core = {k: capital * c.core_target * w for k, w in c.core}
     # trend-guarded half of core: dollars per asset while on; `parked` T-bill dollars while off
@@ -119,13 +137,22 @@ def run(D, c: Cfg, start, end, capital=100_000.0):
     trend_lev = False
     lev = 0.0
     cash = capital - sum(core.values()) - sum(trend.values())
-    lev_entry_val, lev_cost_basis, lev_days = 0.0, 0.0, 0
+    lev_cost_basis, lev_days = 0.0, 0
+    lev_mult = {"qld": 2, "tqqq": 3}.get(c.lev, 0)
     last_tranche_i, last_tranche_px, last_trim_i = -999, np.inf, -999
     nav = np.empty(n)
     rec = {"core": np.empty(n), "lev": np.empty(n), "cash": np.empty(n), "trend": np.empty(n), "expo": np.empty(n)}
     rec.update({k: np.zeros(n) for k in ("reserve", "trend_parked", "qqq_w", "spy_w", "lev_2x", "tranche_want", "tranche_got")})
+    if overlay is not None:
+        rec.update({k: np.zeros(n) for k in ("hedge_mark", "hedge_bucket", "hedge_flow")})
     trades = []
     prev = None
+
+    def coverage():
+        unguarded = sum(core.values()) + lev_mult * lev
+        guarded = sum(trend.values()) * (2 if trend_lev else 1) if trend_on else 0
+        return unguarded, guarded
+
     for i in range(n):
         row = D.iloc[i]
         lev_prev = lev                     # sleeve value at close i-1, the signal close for today's orders
@@ -142,7 +169,11 @@ def run(D, c: Cfg, start, end, capital=100_000.0):
                 lev *= 1 + row["r_" + c.lev]
                 lev_days += 1
             cash *= 1 + row["rf"] / 252
-        V = sum(core.values()) + sum(trend.values()) + parked + lev + cash
+        option_value = 0.0
+        if overlay is not None:
+            cash = overlay.before_rules(idx[i], row, prev, cash, *coverage())
+            option_value = overlay.value
+        V = sum(core.values()) + sum(trend.values()) + parked + lev + cash + option_value
         # 2) execute orders decided on yesterday's close signal (prev)
         if prev is not None and not c.fear_off:
             p, px, ma, recede = prev["p"], prev["qqq"], prev["ma200"], prev["vxn_recede"]
@@ -176,7 +207,7 @@ def run(D, c: Cfg, start, end, capital=100_000.0):
                     if excess > 0:
                         buy_core(excess, "reinvest")
             # tranche buy
-            if not np.isnan(p) and p >= c.tranche_p and i - last_tranche_i >= c.tranche_gap and \
+            if prev["tranche_entry"] and i - last_tranche_i >= c.tranche_gap and \
                     (px <= c.tranche_step * last_tranche_px or i - last_tranche_i > 126):
                 rec["tranche_want"][i] = c.tranche
                 if cash > 1:
@@ -235,13 +266,20 @@ def run(D, c: Cfg, start, end, capital=100_000.0):
                 keep = 1 - c.cost * extra / (ct + tt) if ct + tt > 0 else 1.0
                 core = {k: ct * keep * w / tw_sum for k, w in c.core}
                 trend = {k: tt * keep * w for k, w in trend_w.items()}
-        V = sum(core.values()) + sum(trend.values()) + parked + lev + cash
+        if overlay is not None:
+            cash = overlay.after_rules(idx[i], row, prev, cash, *coverage())
+            option_value = overlay.value
+        V = sum(core.values()) + sum(trend.values()) + parked + lev + cash + option_value
         nav[i] = V
         rec["core"][i] = sum(core.values()) / V
         rec["trend"][i] = sum(trend.values()) / V
         rec["lev"][i] = lev / V
-        rec["cash"][i] = (cash + parked) / V
-        lev_mult = {"qld": 2, "tqqq": 3}.get(c.lev, 0)
+        bucket = overlay.bucket if overlay is not None else 0.0
+        rec["cash"][i] = (cash + parked + bucket) / V
+        if overlay is not None:
+            rec["hedge_mark"][i] = (option_value - bucket) / V
+            rec["hedge_bucket"][i] = bucket / V
+            rec["hedge_flow"][i] = overlay.daily_flow
         rec["reserve"][i] = cash / V                  # spendable dry powder only
         rec["trend_parked"][i] = parked / V
         rec["qqq_w"][i] = (core.get("qqq", 0.0) + trend.get("qqq", 0.0)) / V

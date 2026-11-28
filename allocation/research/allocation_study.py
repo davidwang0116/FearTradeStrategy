@@ -5,14 +5,14 @@ Grid, fixed before any of it was run; every cell is reported:
   scaled ladder   15  v2 rules + QLD + trend guard; tranche = reserve/4, leverage buy = reserve/3, cap = reserve
   fixed ladder    10  same with v2's 7.5% / 10% / 30%, at 75% and 80% equity (at 70% the ladder sizes coincide)
 Strategy cells hold the core basket in the trend-guarded half and reset the basket on rebalance events
-(trend_asset="core", basket_reset="event"), as qc/main.py does. The 70% / 50% QQQ cell is therefore NOT
-frozen v2, whose trend half is QQQ and whose weights drift; see the bridge table.
+(trend_asset="core", basket_reset="event"). Take-profit and age use the signal close, as in qc/main.py.
+The bridge attributes the timing correction, basket changes and allocation changes separately.
 
 Three questions, three comparisons
   Equity share  mix and ladder fixed; 75 vs 70 and 80 vs 70. DESCRIPTIVE trade-off, no winner: extra CAGR,
                 extra drawdown, change in days with spendable reserve < 1% of NAV.
   QQQ mix       equity and ladder fixed; 0/70/80/100% QQQ vs 50%. Sharpe difference, 4 x 5 = 20 tests.
-  v3 candidate  25 strategy cells vs frozen v2 (README headline config). Sharpe difference, 25 tests.
+  v3 candidate  25 strategy cells vs corrected v2. Sharpe difference, 25 tests.
 
 Decision rule (written before the grid was run)
   * The 45 tests are ONE family. A joint 63-day moving-block bootstrap gives simultaneous one-sided max-t
@@ -54,6 +54,7 @@ HALVES = (("2007", "2019"), ("2020", "2026"))
 COST, UPLIFT, BLOCK, N_BOOT = 0.0005, 0.0136, 63, 5000
 V2 = Cfg("frozen v2", core=(("qqq", 0.5), ("spy", 0.5)), tranche=0.075, tranche_step=0.92, lev_cap=0.30,
          lev="qld", trend_guard=True)
+V2_CORRECTED = replace(V2, name="corrected v2", lev_exit_close="signal")
 
 
 def mix_label(q):
@@ -73,6 +74,7 @@ def ladder_sizes(equity, ladder):
 def cell_cfg(equity, q, ladder):
     return Cfg(f"{equity:.0%} equity, {mix_label(q)}, {ladder}", core=core_of(q), core_target=equity,
                tranche_step=0.92, lev="qld", trend_guard=True, trend_asset="core", basket_reset="event",
+               lev_exit_close=V2_CORRECTED.lev_exit_close,
                **ladder_sizes(equity, ladder))
 
 
@@ -178,6 +180,7 @@ def main():
                                ladder=ladder, has_spy=q != 1.0, **strategy_metrics(res, tr, rf), bench_qqq_share=bench_q,
                                hindsight_equal_dd_equity=k, cagr_gap_equal_dd=gap))
     add("frozen v2", V2, 0.70, None, "v2", 0.75)
+    add("corrected v2", V2_CORRECTED, 0.70, None, "v2", 0.75)
     for e, q, lad in cells():
         add((e, q, lad), cell_cfg(e, q, lad), e, q, lad, q)
     S = pd.DataFrame(strat_rows)
@@ -209,14 +212,14 @@ def main():
     ix = {n: i for i, n in enumerate(names)}
     pairs = [("mix", (e, q, lad), (e, 0.5, lad)) for e, lad in [(e, "scaled") for e in EQUITY] + [(e, "fixed") for e in EQUITY[1:]]
              for q in MIXES if q != 0.5]
-    pairs += [("v3", c, "frozen v2") for c in cells()]
+    pairs += [("v3", c, "corrected v2") for c in cells()]
     point = np.array([pt[ix[a]] - pt[ix[b]] for _, a, b in pairs])
     boot = np.column_stack([bt[:, ix[a]] - bt[:, ix[b]] for _, a, b in pairs])
     T, crit = maxt_family(point, boot)
     T.insert(0, "test", [p[0] for p in pairs])
     for j, k in enumerate(("equity", "qqq_share", "ladder")):
         T.insert(1 + j, k, [p[1][j] for p in pairs])
-    T.insert(4, "versus", ["50% QQQ / 50% SPY, same equity and ladder" if p[0] == "mix" else "frozen v2" for p in pairs])
+    T.insert(4, "versus", ["50% QQQ / 50% SPY, same equity and ladder" if p[0] == "mix" else "corrected v2" for p in pairs])
     for a, b in HALVES:
         T[f"diff {a}-{b}"] = [row[x][f"Sharpe {a}-{b}"] - row[y][f"Sharpe {a}-{b}"] for _, x, y in pairs]
     for met in ("CAGR", "MaxDD"):
@@ -254,11 +257,12 @@ def main():
     pd.DataFrame(dc).to_csv(RESULTS / "allocation_drawdown_check.csv", index=False)
 
     # ---- bridge: frozen v2 -> each cell, one change at a time ----
-    basket = Cfg(**{**V2.__dict__, "name": "v2 + basket trend sleeve", "trend_asset": "core"})
+    basket = replace(V2_CORRECTED, name="v2 + basket trend sleeve", trend_asset="core")
     mb = perf_stats(run(D, basket, A, B)[0]["nav"], rf)
-    chain, br = ["frozen v2", "basket trend sleeve", "event reset", "QQQ mix", "equity share", "ladder"], []
+    chain, br = ["frozen v2", "signal close", "basket trend sleeve", "event reset", "QQQ mix", "equity share", "ladder"], []
     for e, q, lad in cells():
-        seq = [row["frozen v2"], mb, row[(0.70, 0.5, "scaled")], row[(0.70, q, "scaled")], row[(e, q, "scaled")], row[(e, q, lad)]]
+        seq = [row["frozen v2"], row["corrected v2"], mb, row[(0.70, 0.5, "scaled")],
+               row[(0.70, q, "scaled")], row[(e, q, "scaled")], row[(e, q, lad)]]
         for met in ("Sharpe", "CAGR", "MaxDD"):
             br.append(dict(equity=e, qqq_share=q, ladder=lad, metric=met, v2=seq[0][met],
                            **{f"step: {c}": seq[i + 1][met] - seq[i][met] for i, c in enumerate(chain[1:])}, cell=seq[-1][met]))

@@ -14,16 +14,17 @@ from strategy import Cfg, prepare, run  # noqa: E402
 
 G = 1.01
 A, B = "2007-02-01", "2026-09-11"
-# README headline v2 (the same Cfg as allocation/research/allocation_study.py's V2)
-V2 = Cfg("frozen v2", core=(("qqq", 0.5), ("spy", 0.5)), tranche=0.075, tranche_step=0.92, lev_cap=0.30,
-         lev="qld", trend_guard=True)
+# Corrected research baseline: QC checks leverage age and take-profit on the signal day.
+V2 = Cfg("corrected v2", core=(("qqq", 0.5), ("spy", 0.5)), tranche=0.075, tranche_step=0.92, lev_cap=0.30,
+         lev="qld", trend_guard=True, lev_exit_close="signal")
 
 
 def basket_cfg(q):
     """QC-like model at 70% equity: trend half holds the basket, reset on events (allocation study's 70% cell)."""
     core = tuple((k, w) for k, w in (("qqq", q), ("spy", 1 - q)) if w > 1e-12)
     return Cfg(f"70% basket, {q:.0%} QQQ", core=core, core_target=0.70, tranche=0.075, tranche_step=0.92,
-               lev="qld", lev_size=0.10, lev_cap=0.30, trend_guard=True, trend_asset="core", basket_reset="event")
+               lev="qld", lev_size=0.10, lev_cap=0.30, trend_guard=True, trend_asset="core", basket_reset="event",
+               lev_exit_close="signal")
 
 
 @pytest.fixture(scope="module")

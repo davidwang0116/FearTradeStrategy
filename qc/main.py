@@ -23,20 +23,22 @@ Percentile: today's composite is ranked against every composite since 2000-03-08
 2008-01-03 (QC's first VXN bar) is VIX x 1.0555, as in data/build_dataset.py.
 Live restarts: state is saved to the ObjectStore every bar (live only) and restored, so a restart never trades by itself.
 
-STATUS — written and logic-checked offline, NOT yet run on QC.  First run:
-  1. Check the log lines tagged [PROBE]: QQQ from 1999, VXN from 2008, composite history from 2000-03-08.
-  2. Compare the [SIGNAL] composite for a few dates against results/signal_reference.csv.
-  3. Paper restart drill while holding QLD: expect [RESTART] and no orders on that bar.
-  4. LEAPS mode is a skeleton (TODO-5): check chain filter, Greeks and marks first.
+tranche_signal = COMPOSITE (default) | VIX_EASING | OFF. VIX_EASING requires a VIX close
+at least 24 and lower than 20 QQQ sessions ago. Only the core tranche gate changes.
+overlay = NONE (default) | HEDGE12M (backtest only). See hedge.py for execution and cash accounting.
+LEAPS remains a separate experimental leverage sleeve.
 """
 import json
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
+from math import isfinite
 
 import numpy as np
 import pandas as pd
 
-from signals import SEED_FROM, VXN_VIX_RATIO, backfill_vxn, close_series, composite_frame, pct_of, seed_composite
+from signals import (SEED_FROM, VIX_SEED_URL, VXN_VIX_RATIO, backfill_vxn, close_series, composite_frame,
+                     extend_vix_history, pct_of, seed_composite)
+from hedge import ProtectivePut
 
 
 def _p(algo, name, default, cast=float):
@@ -54,6 +56,8 @@ def parse_core(spec):
             raise ValueError(f"bad core spec {spec!r}: use TICKER:weight with distinct tickers and positive weights")
         w[t] = v
     tot = sum(w.values())
+    if not isfinite(tot):
+        raise ValueError("core weights must have a finite sum")
     return {t: v / tot for t, v in w.items()}
 
 
@@ -70,12 +74,24 @@ def ladder_defaults(mode, core_target):
 class FearTrancheAccumulator(QCAlgorithm):
 
     def initialize(self):
-        self.set_start_date(_p(self, "start_year", 2011, int), 1, 1)
+        start_year = _p(self, "start_year", 2011, int)
         end_year = _p(self, "end_year", 0, int)
-        if end_year:
-            self.set_end_date(end_year, 12, 31)
-        self.set_cash(_p(self, "capital", 100_000))
+        start = datetime.fromisoformat(self.get_parameter("start_date") or f"{start_year:04d}-01-01")
+        end_text = self.get_parameter("end_date") or (f"{end_year:04d}-12-31" if end_year else "")
+        end = datetime.fromisoformat(end_text) if end_text else None
+        capital = _p(self, "capital", 100_000)
+        if (end is not None and end < start) or not isfinite(capital) or capital <= 0:
+            raise ValueError("the end date must follow the start date and capital must be positive")
+        self.set_start_date(start.year, start.month, start.day)
+        if end is not None:
+            self.set_end_date(end.year, end.month, end.day)
+        self.set_cash(capital)
         self.set_brokerage_model(BrokerageName.INTERACTIVE_BROKERS_BROKERAGE, AccountType.MARGIN)
+        # Underlying and Cboe indices have different closing times. In backtests synchronize
+        # daily bars at midnight and use the bar's session date for all close signals.
+        self.midnight_bars = not self.live_mode and hasattr(self, "settings")
+        if self.midnight_bars:
+            self.settings.daily_precise_end_time = False
 
         # ---- parameters (defaults = pre-registered v2) ----
         self.core_target = _p(self, "core_target", 0.70)
@@ -95,8 +111,31 @@ class FearTrancheAccumulator(QCAlgorithm):
         self.lev_max_days = _p(self, "lev_max_days", 378, int)
         self.greed_p = _p(self, "greed_p", 0.15)
         self.greed_stretch = _p(self, "greed_stretch", 1.08)
-        self.trend_guard = _p(self, "trend_guard", 1, int) == 1
+        guard = _p(self, "trend_guard", 1, int)
+        self.trend_guard = guard == 1
         self.trend_band = _p(self, "trend_band", 0.97)
+        self.tranche_signal = (self.get_parameter("tranche_signal") or "COMPOSITE").strip().upper()
+        self.vix_floor = _p(self, "vix_floor", 24.0)
+        self.vix_easing_days = _p(self, "vix_easing_days", 20, int)
+        self.cash_buffer = _p(self, "cash_buffer", 0.01)
+        self.align_vix = self.midnight_bars or (self.live_mode and self.tranche_signal == "VIX_EASING")
+        if self.tranche_signal not in ("COMPOSITE", "VIX_EASING", "OFF"):
+            raise ValueError("tranche_signal must be COMPOSITE, VIX_EASING or OFF")
+        if self.lev_mode not in ("QLD", "TQQQ", "LEAPS", "NONE"):
+            raise ValueError("lev must be QLD, TQQQ, LEAPS or NONE")
+        if not (guard in (0, 1) and 0 <= self.cash_buffer < 1
+                and isfinite(self.vix_floor) and self.vix_floor > 0
+                and 1 <= self.vix_easing_days <= 899):
+            raise ValueError("invalid trend_guard, cash_buffer, vix_floor or vix_easing_days")
+        if not (0 <= self.tranche <= 1 and 0 <= self.lev_size <= self.lev_cap <= 1
+                and 0 < self.tranche_step <= 1 and self.tranche_gap >= 1 and self.lev_max_days >= 1
+                and all(isfinite(v) and v >= 0 for v in (self.tranche_p, self.lev_tp, self.lev_p))
+                and 0 <= self.lev_exit_p <= 1
+                and -1 <= self.greed_p <= 1
+                and all(isfinite(v) and v > 0 for v in (self.trend_band, self.greed_stretch))):
+            raise ValueError("invalid tranche, leverage, greed or trend parameters")
+        self.audit_dates = set((self.get_parameter("audit_dates") or "").split(","))
+        self.trace_signals = _p(self, "trace_signals", 1, int) == 1
 
         mode = (self.get_parameter("sleeves") or "BASKET").upper()
         if mode not in ("BASKET", "HEADLINE"):
@@ -104,18 +143,42 @@ class FearTrancheAccumulator(QCAlgorithm):
         self.headline = mode == "HEADLINE"
         core_spec = self.get_parameter("core") or ("QQQ:0.5,VOO:0.5" if self.headline else "QQQ:1")
         self.core_w = parse_core(core_spec)
-        powder = self.get_parameter("powder") or "BIL"
+        powder = (self.get_parameter("powder") or "BIL").strip().upper()
+        if powder in self.core_w or powder == self.lev_mode or powder == "QQQ" or self.lev_mode in self.core_w:
+            raise ValueError("core, powder and leverage must use distinct tickers")
 
-        norm = DataNormalizationMode.ADJUSTED if self.live_mode else DataNormalizationMode.TOTAL_RETURN
-        if self.lev_mode == "LEAPS":
+        overlay = (self.get_parameter("overlay") or "NONE").strip().upper()
+        price_mode = (self.get_parameter("price_mode") or "AUTO").strip().upper()
+        if overlay not in ("NONE", "HEDGE12M") or price_mode not in ("AUTO", "RAW", "ADJUSTED"):
+            raise ValueError("overlay must be NONE or HEDGE12M and price_mode must be AUTO, RAW or ADJUSTED")
+        if overlay == "HEDGE12M" and (self.lev_mode == "LEAPS" or self.live_mode):
+            raise ValueError("HEDGE12M is a backtest overlay and requires ETF leverage or lev=NONE")
+        if overlay == "HEDGE12M" and start.year < 2012:
+            raise ValueError("HEDGE12M requires the QuantConnect option quote era (2012 onward)")
+        if price_mode == "ADJUSTED" and (overlay == "HEDGE12M" or self.lev_mode == "LEAPS"):
+            raise ValueError("QQQ options require raw underlying prices")
+
+        norm = DataNormalizationMode.ADJUSTED if self.live_mode or price_mode == "ADJUSTED" else DataNormalizationMode.TOTAL_RETURN
+        if self.lev_mode == "LEAPS" or overlay == "HEDGE12M" or price_mode == "RAW":
             norm = DataNormalizationMode.RAW   # option strikes need the raw underlying price
         add = lambda t: self.add_equity(t, Resolution.DAILY, data_normalization_mode=norm).symbol
         self.qqq = add("QQQ")
-        self.core_syms = {t: add(t) for t in self.core_w}
+        self.core_syms = {t: self.qqq if t == "QQQ" else add(t) for t in self.core_w}
         self.powder = add(powder) if powder != "CASH" else None
         self.lev_sym = add(self.lev_mode) if self.lev_mode in ("QLD", "TQQQ") else None
-        self.vxn = self.add_index("VXN", Resolution.DAILY).symbol
-        self.vix = self.add_index("VIX", Resolution.DAILY).symbol     # fills VXN before 2008-01-03, as research does
+        self.equity_symbols = set(self.core_syms.values()) | {self.qqq, self.powder, self.lev_sym}
+        self.equity_symbols.discard(None)
+        if self.midnight_bars:
+            # A midnight daily bar spans time before a 01:00 order. Intraday bars let
+            # LEAN fill opening orders before the following day's sleeve attribution.
+            tickers = set(self.core_w) | {"QQQ", powder, self.lev_mode}
+            for ticker in sorted(tickers - {"CASH", "NONE", "LEAPS"}):
+                self.add_equity(ticker, Resolution.HOUR, data_normalization_mode=norm)
+        self.vxn = self.add_index("VXN", Resolution.DAILY, fill_forward=False).symbol
+        # A fill-forward observation can release the daily decision, but cannot trigger a VIX entry.
+        self.vix = self.add_index("VIX", Resolution.DAILY).symbol
+        self.hedge = ProtectivePut(self) if overlay == "HEDGE12M" else None
+        self.pending_daily = self.latest_vix = None
         if self.lev_mode == "LEAPS":
             self._init_leaps()
 
@@ -123,13 +186,18 @@ class FearTrancheAccumulator(QCAlgorithm):
         # The percentile ranks today's composite against EVERY value since 2000, as research does
         # (strategy.prepare: expanding rank). The rolling inputs only need the last 900 bars.
         since = datetime.strptime(SEED_FROM, "%Y-%m-%d")
-        hist = lambda s: close_series(self.history([s], since, self.time, Resolution.DAILY), s)
+        hist = lambda s: close_series(self.history([s], since, self.time, Resolution.DAILY), s, midnight=self.midnight_bars)
         px, vx_raw, vix = hist(self.qqq), hist(self.vxn), hist(self.vix)
+        if len(px) and (not len(vix) or vix.index[0] > px.index[0]) and hasattr(self, "download"):
+            qc_count = len(vix)
+            vix = extend_vix_history(vix, self.download(VIX_SEED_URL), px.index[0], pd.Timestamp(self.time.date()))
+            self.log(f"[PROBE] prepended {len(vix) - qc_count} Cboe VIX closes before QC coverage")
         self.vxn_seen = len(vx_raw) > 0          # once real VXN exists, VIX is no longer used
         vx = backfill_vxn(vx_raw, vix)
         self.px_hist = deque(zip(px.index, px.to_numpy()), maxlen=900)
         self.vxn_hist = deque(zip(vx.index, vx.to_numpy()), maxlen=900)
         self.vxn_max10 = deque(vx.to_numpy()[-10:], maxlen=10)
+        self.vix_history = deque(vix.reindex(px.index).to_numpy()[-self.vix_easing_days:], maxlen=self.vix_easing_days + 1)
         self.comp_hist, self.comp_from = [], None     # composite history for the expanding percentile
         self._seed_composite(px, vx)
 
@@ -141,6 +209,8 @@ class FearTrancheAccumulator(QCAlgorithm):
         self.last_tranche_px = float("inf")
         self.last_trim_i = -999
         self.i = 0
+        self.data_missing = {"vix": 0, "vxn": 0, "composite": 0}
+        self.equity_delays = 0
         self.state_key = self.get_parameter("state_key") or "fear_tranche/state"
         self.set_warm_up(timedelta(days=5))
         self.log(f"[PROBE] seeded {len(px)} QQQ bars from {px.index[0].date() if len(px) else None}, {len(vx)} VXN bars "
@@ -164,33 +234,72 @@ class FearTrancheAccumulator(QCAlgorithm):
 
     # ------------------------------------------------------------------ main loop
     def on_data(self, data: Slice):
-        if self.is_warming_up or not data.bars.contains_key(self.qqq):
+        if self.is_warming_up:
             return
-        t = self.time.date()
-        close = float(data.bars[self.qqq].close)
+        if self.hedge is not None:
+            self.hedge.on_data(data)
+        qbar = data.bars.get(self.qqq)
+        daily_qqq = qbar is not None and getattr(qbar, "period", timedelta(days=1)) >= timedelta(hours=3)
+        vix_bar = data.bars.get(self.vix)
+        if not self.align_vix:
+            if daily_qqq:
+                valid_vix = vix_bar if not getattr(vix_bar, "is_fill_forward", False) else None
+                self._on_daily(self.time.date(), float(qbar.close), data.bars.get(self.vxn), valid_vix)
+            return
+        if vix_bar is not None:
+            self.latest_vix = vix_bar.time.date(), vix_bar
+        if daily_qqq:
+            if self.pending_daily is not None:
+                # A session with no VIX delivery is still counted, with the tranche gate closed.
+                self._flush_daily(None)
+            self.pending_daily = qbar.time.date(), float(qbar.close), data.bars.get(self.vxn)
+        if self.pending_daily is not None:
+            if self.latest_vix is not None and self.latest_vix[0] == self.pending_daily[0]:
+                bar = self.latest_vix[1]
+                self._flush_daily(bar if not bar.is_fill_forward else None)
+            elif 2 <= self.time.hour < 9:
+                self._flush_daily(None)
+
+    def _flush_daily(self, vix_bar):
+        t, close, vbar = self.pending_daily
+        self.pending_daily = None
+        self._on_daily(t, close, vbar, vix_bar)
+
+    def _on_daily(self, t, close, vbar, vix_bar):
         self.px_hist.append((pd.Timestamp(t), close))
-        vbar = data.bars.get(self.vxn) if data.bars.contains_key(self.vxn) else None
+        vix_close = float(vix_bar.close) if vix_bar is not None else float("nan")
+        self.vix_history.append(vix_close)
+        self.data_missing["vix"] += vix_bar is None
         if vbar is not None:
             self.vxn_seen = True
-        elif not self.vxn_seen and data.bars.contains_key(self.vix):
-            vbar = type("Bar", (), {"close": float(data.bars[self.vix].close) * VXN_VIX_RATIO})()   # pre-2008 days
+        elif not self.vxn_seen and vix_bar is not None:
+            vbar = type("Bar", (), {"close": vix_close * VXN_VIX_RATIO})()   # pre-2008 days
         if vbar is not None:
             v = float(vbar.close)
             self.vxn_hist.append((pd.Timestamp(t), v))
             self.vxn_max10.append(v)
+        self.data_missing["vxn"] += vbar is None
         f = self._frame()
         comp = float(f["composite"].iloc[-1])
         ma200 = float(pd.Series([p for _, p in self.px_hist]).iloc[-200:].mean())
-        p = self._pct(comp)
-        if not np.isnan(comp):
+        p = self._pct(comp) if np.isfinite(comp) else float("nan")
+        if np.isfinite(comp):
             self.comp_hist.append(comp)
-        recede = len(self.vxn_max10) == 10 and self.vxn_max10[-1] <= 0.85 * max(self.vxn_max10)
-        self.plot("Signal", "composite", comp)
+            self.plot("Signal", "composite", comp)
+        else:
+            self.data_missing["composite"] += 1
+        recede = vbar is not None and len(self.vxn_max10) == 10 and self.vxn_max10[-1] <= 0.85 * max(self.vxn_max10)
         self.plot("Signal", "pctile x100", 0 if np.isnan(p) else 100 * p)
 
         self.p_last = p
         nav = self.portfolio.total_portfolio_value
         new_book = self.book is None
+        self.i += 1
+        if not new_book and hasattr(self, "transactions") and any(
+                order.symbol in self.equity_symbols for order in self.transactions.get_open_orders()):
+            self.equity_delays += 1
+            self.log(f"[ETF PENDING] {t} kept sleeve weights until the previous rebalance completes")
+            return
         if new_book:
             if self.live_mode and self.portfolio.invested:
                 self._restore_book(close, ma200)  # a restart: never trade just because the algorithm restarted
@@ -201,8 +310,7 @@ class FearTrancheAccumulator(QCAlgorithm):
             if self.headline:
                 self._drift_headline()
             else:
-                self._drift_book(data)
-        self.i += 1
+                self._drift_book()
         changed = False
         why = []
 
@@ -221,7 +329,7 @@ class FearTrancheAccumulator(QCAlgorithm):
                     self._buy_core(excess)
                 changed = True; why.append(f"lev exit {gain:+.0%}")
         # tranche buy
-        if not np.isnan(p) and p >= self.tranche_p and self.i - self.last_tranche_i >= self.tranche_gap and \
+        if self._tranche_allowed(p) and self.i - self.last_tranche_i >= self.tranche_gap and \
                 (close <= self.tranche_step * self.last_tranche_px or self.i - self.last_tranche_i > 126):
             amt = min(self.tranche, self.book["powder"])
             if amt > 0.001:
@@ -254,12 +362,27 @@ class FearTrancheAccumulator(QCAlgorithm):
                 self.trend_on = want
                 changed = True; why.append("trend " + ("on" if want else "off"))
 
-        self.log(f"[SIGNAL] {t} close={close:.2f} comp={comp:.2f} p={p:.3f} recede={recede} book={self._fmt()}")
+        if self.trace_signals:
+            self.log(f"[SIGNAL] {t} close={close:.2f} comp={comp:.2f} p={p:.3f} recede={recede} book={self._fmt()}")
+        if str(t) in self.audit_dates:
+            self.log(f"[AUDIT] {t} QQQ={close:.4f} VXN={float(vbar.close) if vbar else float('nan'):.4f} "
+                     f"VIX={vix_close:.4f} comp={comp:.5f} p={p:.5f} NAV={nav:.2f}")
         if changed:
             self.log(f"[TRADE] {t} {', '.join(why)}")
+        if changed or new_book:
             self._rebalance()
+        if self.hedge is not None:
+            self.hedge.plan(t, close, p, recede)
         if self.live_mode:
             self._save_state(t)
+
+    def _tranche_allowed(self, p):
+        if self.tranche_signal == "COMPOSITE":
+            return p >= self.tranche_p
+        if self.tranche_signal == "OFF" or len(self.vix_history) < self.vix_easing_days + 1:
+            return False
+        prior, current = self.vix_history[0], self.vix_history[-1]
+        return current >= self.vix_floor and current < prior
 
     # ------------------------------------------------------------------ book helpers
     def _init_book(self):
@@ -267,7 +390,6 @@ class FearTrancheAccumulator(QCAlgorithm):
         self.book = {"core": c / 2 if self.trend_guard else c, "trend": c / 2 if self.trend_guard else 0.0,
                      "lev": 0.0, "powder": 1 - c}
         self.core_parts = {t: self.book["core"] * w for t, w in self.core_w.items()}   # used by HEADLINE only
-        self._rebalance()
 
     def _buy_core(self, amt):
         """Sleeve flow at target weights; in HEADLINE mode existing holdings keep their drifted weights."""
@@ -297,7 +419,7 @@ class FearTrancheAccumulator(QCAlgorithm):
             self.core_parts[t] = f
         self.book["core"] = sum(self.core_parts.values())
         self.book["lev"] = self._lev_value() / nav
-        rest = max(1 - held - self.book["lev"], 0.0)
+        rest = max(1 - held - self.book["lev"] - self._hedge_value() / nav, 0.0)
         if self.trend_on:
             self.book["trend"], self.book["powder"] = trend_new, rest
         else:
@@ -305,14 +427,14 @@ class FearTrancheAccumulator(QCAlgorithm):
             share = self.book["trend"] / tot if tot > 0 else 0.0
             self.book["trend"], self.book["powder"] = rest * share, rest * (1 - share)
 
-    def _drift_book(self, data):
+    def _drift_book(self):
         """Re-base sleeve fractions from actual holdings so the book tracks the account."""
         nav = self.portfolio.total_portfolio_value
         if nav <= 0:
             return
         core_val = sum(self.portfolio[s].holdings_value for s in self.core_syms.values())
         lev_val = self._lev_value()
-        powder_val = nav - core_val - lev_val
+        powder_val = nav - core_val - lev_val - self._hedge_value()
         tot_core = self.book["core"] + (self.book["trend"] if self.trend_on else 0)
         if tot_core > 0:
             share = self.book["core"] / tot_core
@@ -340,14 +462,15 @@ class FearTrancheAccumulator(QCAlgorithm):
                     book={k: float(v) for k, v in self.book.items()},
                     core_parts=self.core_parts, trend_on=bool(self.trend_on), lev_days=self.lev_days, i=self.i,
                     last_tranche_i=self.last_tranche_i, last_tranche_px=f(self.last_tranche_px),
-                    last_trim_i=self.last_trim_i)
+                    last_trim_i=self.last_trim_i, tranche_signal=self.tranche_signal)
 
     def _save_state(self, t):
         self.object_store.save(self.state_key, json.dumps(self._state(t)))
 
     def _restore_book(self, close, ma200):
         st = json.loads(self.object_store.read(self.state_key)) if self.object_store.contains_key(self.state_key) else None
-        if st and st["sleeves"] == ("HEADLINE" if self.headline else "BASKET") and st["core"] == self.core_w:
+        if (st and st["sleeves"] == ("HEADLINE" if self.headline else "BASKET") and st["core"] == self.core_w
+                and st.get("tranche_signal", "COMPOSITE") == self.tranche_signal):
             self.book, self.core_parts, self.trend_on = st["book"], st["core_parts"], st["trend_on"]
             self.lev_days, self.i, self.last_tranche_i, self.last_trim_i = (
                 st["lev_days"], st["i"], st["last_tranche_i"], st["last_trim_i"])
@@ -385,6 +508,9 @@ class FearTrancheAccumulator(QCAlgorithm):
                        if s.security_type == SecurityType.OPTION and h.invested)
         return 0.0
 
+    def _hedge_value(self):
+        return self.hedge.nonspendable_value() if self.hedge is not None else 0.0
+
     def _rebalance(self):
         targets = []
         trend_frac = self.book["trend"] if self.trend_on else 0.0
@@ -401,7 +527,7 @@ class FearTrancheAccumulator(QCAlgorithm):
             targets.append(PortfolioTarget(self.lev_sym, self.book["lev"]))
         if self.powder is not None:
             powder_frac = self.book["powder"] + (0.0 if self.trend_on else self.book["trend"])
-            targets.append(PortfolioTarget(self.powder, max(powder_frac - 0.01, 0.0)))   # 1% cash buffer
+            targets.append(PortfolioTarget(self.powder, max(powder_frac - self.cash_buffer, 0.0)))
         self.set_holdings(targets)
         if self.lev_mode == "LEAPS":
             self._rebalance_leaps()
@@ -444,4 +570,12 @@ class FearTrancheAccumulator(QCAlgorithm):
             self.market_order(best.symbol, n, tag=f"LEAPS d={best.greeks.delta:.2f} K={best.strike}")
 
     def on_end_of_algorithm(self):
-        self.log(f"[END] book={self._fmt()} NAV={self.portfolio.total_portfolio_value:,.0f}")
+        if self.hedge is not None:
+            self.hedge.report()
+        self.log(f"[DATA SUMMARY] sessions={self.i} missing={self.data_missing} equity_delays={self.equity_delays}")
+        book = self._fmt() if self.book is not None else "uninitialized"
+        self.log(f"[END] book={book} NAV={self.portfolio.total_portfolio_value:,.0f}")
+
+    def on_order_event(self, event):
+        if self.hedge is not None:
+            self.hedge.on_order_event(event)

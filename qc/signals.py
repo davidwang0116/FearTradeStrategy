@@ -10,6 +10,7 @@ neither has point-in-time history on QC yet — see qc/README.md, TODO-3/TODO-4.
 Higher score = more fear / cheaper.
 """
 import math
+from io import StringIO
 
 import numpy as np
 import pandas as pd
@@ -105,6 +106,8 @@ def expanding_pct(series, min_periods=504):
 # ---- seeding the percentile history in QC (research ranks against every composite value since 2000-03-08) ----
 SEED_FROM = "1999-03-10"              # first QQQ date in data/panel.csv
 SEED_LATEST_START = "2001-06-30"      # a seed that starts later than this is too short to match research
+VIX_SEED_URL = ("https://raw.githubusercontent.com/davidwang0116/FearTradeStrategy/"
+                "613318cfd290c757b84b4e8ccbdb2bc0e1e2208b/data/raw/vix_daily.csv")
 # QC's VXN starts 2008-01-03. data/build_dataset.py back-fills earlier days as VIX x the 2008-2012 median VXN/VIX
 # ratio; QC must do the same or its early composites, and so every percentile, differ from research.
 VXN_VIX_RATIO = 1.055526132572263
@@ -119,6 +122,15 @@ def backfill_vxn(vxn, vix):
     return pd.concat([pre * VXN_VIX_RATIO, vxn]).sort_index()
 
 
+def extend_vix_history(vix, csv_text, first_price, before):
+    """Prepend the pinned panel input only where QC predates its first VIX bar."""
+    published = pd.read_csv(StringIO(csv_text), usecols=["DATE", "CLOSE"], parse_dates=["DATE"])
+    closes = published.set_index("DATE")["CLOSE"].sort_index()
+    cutoff = min(before, vix.index[0]) if len(vix) else before
+    earlier = closes.loc[(closes.index >= first_price) & (closes.index < cutoff)]
+    return pd.concat([earlier, vix])
+
+
 def pct_of(hist, x, min_periods=504):
     """expanding_pct for one new value: average rank of x among hist + [x], NaN with fewer than min_periods values."""
     h = np.asarray(hist, dtype=float)
@@ -127,12 +139,17 @@ def pct_of(hist, x, min_periods=504):
     return float(((h < x).sum() + ((h == x).sum() + 2) / 2) / (len(h) + 1))
 
 
-def close_series(hist, sym):
+def close_series(hist, sym, *, midnight=False):
     """Daily close series (normalised dates, no duplicates) from a QC history frame indexed by (symbol, time)."""
     if hist is None or hist.empty:
         return pd.Series(dtype=float, index=pd.DatetimeIndex([]))
     s = hist.loc[sym]["close"].astype(float).dropna()
-    s.index = pd.to_datetime(s.index).normalize()
+    ends = pd.to_datetime(s.index)
+    sessions = ends.normalize()
+    if midnight:
+        # LEAN History indexes bars by EndTime. At midnight the bar belongs to the prior session.
+        sessions = sessions.where(ends.hour >= 8, sessions - pd.Timedelta(days=1))
+    s.index = sessions
     return s[~s.index.duplicated(keep="last")].sort_index()
 
 

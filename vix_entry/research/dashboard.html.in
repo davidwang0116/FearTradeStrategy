@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VIX entry research</title>
+<style>
+  :root{color-scheme:light;--ink:#192a22;--muted:#50645b;--green:#18563e;--blue:#2b5d8f;--line:#d7e1da;--paper:#fff;--ground:#f2f5f1;--soft:#e7efe9}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font:15px/1.5 Inter,"Segoe UI",system-ui,sans-serif;font-variant-numeric:tabular-nums}
+  main{max-width:1320px;margin:auto;padding:24px 32px}
+  header{background:#163a2d;color:#f6fcf8;padding:30px 34px;border-radius:16px;margin-bottom:18px}
+  h1,h2,p{margin:0}h1{font-size:clamp(34px,5vw,52px);letter-spacing:-.055em;line-height:1.1}
+  header p{color:#d4e6da;margin-top:6px}
+  nav{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:16px}nav a{color:#f6fcf8;text-underline-offset:4px}
+  a{color:var(--green)}h2{letter-spacing:-.034em;font-size:24px}h3{margin:18px 0 2px;font-size:16px}
+  .panel{background:var(--paper);border:1px solid var(--line);padding:20px 24px;border-radius:14px;margin-bottom:16px}
+  .muted{color:var(--muted);font-size:13px}.notice{background:#f8f3e3;color:#5a4b25;padding:8px 12px;border-radius:8px;margin:10px 0}
+  .controls{display:flex;align-items:end;gap:10px 14px;flex-wrap:wrap;margin:12px 0}
+  label{font-size:13px;font-weight:650;display:grid;grid-template-columns:minmax(0,1fr);gap:3px;min-width:0;max-width:100%}
+  label.check{display:flex;gap:6px;align-items:center;min-height:36px}
+  select,input,button{font:inherit;color:inherit;min-width:0;max-width:100%}
+  select,input[type=date],button{min-height:36px;background:#fff;border:1px solid #a9bdb1;border-radius:7px;padding:4px 8px}
+  button{cursor:pointer;font-weight:650}button:hover{background:var(--soft)}button:disabled{opacity:.48;cursor:default}
+  :focus-visible{outline:2px solid #1b6999;outline-offset:2px}
+  .rules{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:10px 0}
+  fieldset{border:1px solid var(--line);border-radius:10px;margin:0;padding:10px 12px;min-width:0}legend{font-weight:750;color:var(--green)}
+  .rules fieldset:nth-child(2) legend{color:var(--blue)}fieldset .controls{margin:3px 0 0}
+  .scroll{overflow:auto;margin:6px 0 10px}table{width:100%;border-collapse:collapse;white-space:nowrap}
+  th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:right}th:first-child,td:first-child{text-align:left}
+  thead th{font-size:12px;color:#43594e;background:var(--ground)}tbody th{font-weight:650}
+  canvas{width:100%;height:86px;display:block}
+  .grid th,.grid td{padding:4px;text-align:center}.grid button{width:100%;min-width:67px;border-color:var(--line)}
+  .grid button small{display:block;font-size:11px;color:var(--muted)}
+  .grid button[aria-pressed=true]{box-shadow:inset 0 0 0 2px var(--blue)}
+  .grid button.few{color:var(--muted)}
+  .links{display:flex;flex-wrap:wrap;gap:3px 16px;margin-top:6px}
+  .positive{color:var(--green)}.negative{color:#96392e}
+  .outcome-scroll{max-height:530px}
+  #outcome-table{border-collapse:separate;border-spacing:0}
+  #outcome-table thead th{position:sticky;top:0;z-index:2;white-space:normal;min-width:105px}
+  #outcome-table tr > th:first-child{position:sticky;left:0;width:245px;min-width:245px;max-width:245px;white-space:normal;border-right:1px solid var(--line)}
+  #outcome-table thead th:first-child{z-index:3}
+  #outcome-table tbody th{z-index:1;background:var(--paper)}
+  #outcome-table tr.group-start > *{border-top:1px solid #a9bdb1}
+  .outcome-rule{display:block;font-weight:600;font-size:13px}
+  [hidden]{display:none!important}
+  @media(max-width:800px){main{padding:12px}.panel,header{padding:15px}.rules{grid-template-columns:1fr}
+    #outcome-table tr > th:first-child{width:153px;min-width:153px;max-width:153px}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>VIX entry research</h1>
+    <p id="coverage"></p>
+    <nav aria-label="Research sections"><a href="#episode-first">One purchase per episode</a><a href="#outcomes">Outcome table</a><a href="#frequency">Signal frequency</a><a href="#entries">Entries and exits</a><a href="#tactical">Entry and exit tests</a><a href="#signals">Entry signals compared</a><a href="#compare">Compare rules</a><a href="#grid">Parameter grid</a><a href="#episodes">Recovery episodes</a><a href="#portfolio">Funded backtests</a><a href="#ledger">Funded trades</a></nav>
+  </header>
+
+  <section class="panel" id="episode-first">
+    <h2>One purchase per episode</h2>
+    <p class="muted">What an investor gets from buying each episode's first signal once and holding 63 sessions, after costs. Excess is points above the average date in the same sample, and Better is the share of episodes above it. Scroll across for returns. The outcome table below counts every signal day, so one long episode can count many times. The two definitions differ in when a new episode may start.</p>
+    <div class="scroll"><table id="episode-first-table"></table></div>
+  </section>
+
+  <section class="panel" id="outcomes">
+    <h2>Entry rule outcomes</h2>
+    <p class="muted">Compare preset rules on shared dates within each experiment. Scroll across for all metrics and date ranges.</p>
+    <div class="controls">
+      <label>Experiment<select id="outcome-experiment"></select></label>
+      <button id="outcome-download">Download outcome CSV</button>
+    </div>
+    <div class="scroll outcome-scroll" tabindex="0" role="region" aria-label="Scrollable entry rule outcomes"><table id="outcome-table"></table></div>
+    <p class="muted">Return and tail columns use 63-session QQQ trades. Spread is above the all-date QQQ mean on the shared dates for that split. Episode gaps use trading sessions between starts after at least 21 quiet sessions. Recovery waiting rules count one entry per episode. The episode-weighted spread counts each episode once. The ex-largest spread drops the later episode with the most signal days. Read spreads next to their signal days and training start, because experiments with shorter inputs use different samples. Funded metrics use the v2 portfolio on the later dates shown in the last column. Fresh runs restart the portfolio at the split. Carried runs start at the first shared training date and are measured over the later period. The composite and no-tranche columns are controls. No-tranche keeps the starting core, reinvestment and the composite-driven QLD sleeve.</p>
+  </section>
+
+  <section class="panel" id="frequency">
+    <h2>How often each rule fires</h2>
+    <p class="muted">Each rule uses every date it has data for. An episode is a run of signals separated by more than 21 quiet sessions. Gaps run from one episode's first signal to the next. 21 sessions is about one month, and 252 is one year.</p>
+    <div class="controls"><label>Sample<select id="frequency-period"></select></label></div>
+    <div class="scroll outcome-scroll" tabindex="0" role="region" aria-label="Scrollable signal frequency"><table id="frequency-table"></table></div>
+    <p class="muted">Spaced entries count how many 63-session trades you could take one after another. A 63-session or 90-session gap leaves room for a full holding period before the next episode.</p>
+  </section>
+
+  <section class="panel" id="entries">
+    <h2>Entries and exits by episode</h2>
+    <p class="muted">Buy QQQ at the close after each episode's first signal and sell 63 sessions later. Worst and best are measured at closes against the entry price.</p>
+    <div class="controls"><label>Rule<select id="entries-rule"></select></label><label>Sample<select id="entries-period"></select></label><button id="entries-download">Download entries CSV</button></div>
+    <p id="entries-summary"></p>
+    <div class="scroll"><table id="entries-table"></table></div>
+  </section>
+
+  <section class="panel" id="tactical">
+    <h2>Entry and exit tests</h2>
+    <p class="muted">Each test starts at a fear trigger and compares paired results episode by episode. Rules were chosen on 2008–2019 only. A rule passes if its mean difference from the baseline is positive, it is better in at least 60% of episodes, and it stays positive without its best episode. Later is secondary.</p>
+    <div class="controls">
+      <label>Test<select id="tactical-test"><option value="first order">Entry: first order</option><option value="reserve">Entry: four-tranche reserve, timing value</option><option value="reserve profit">Entry: four-tranche reserve, profit</option><option value="exit">Exit</option><option value="hold length">Holding 126 sessions against 63</option><option value="portfolio">Funded sleeve</option></select></label>
+      <label>Trigger<select id="tactical-trigger"></select></label>
+      <label>Window<select id="tactical-window"><option value="63">63 sessions (decides)</option><option value="126">126 sessions</option></select></label>
+    </div>
+    <p class="muted" id="tactical-note"></p>
+    <div class="scroll"><table id="tactical-table"></table></div>
+    <h3>Results by episode, VIX ≥24, 63 sessions</h3>
+    <div class="controls"><label>Rule<select id="tactical-rule"></select></label><button id="tactical-download">Download episodes CSV</button></div>
+    <div class="scroll"><table id="tactical-episodes"></table></div>
+  </section>
+
+  <section class="panel" id="signals">
+    <h2>Entry signals compared</h2>
+    <p class="muted">Each VIX signal used as the entry point, buying once at its first close in an episode and holding 63 sessions. Excess is the return beyond the average 63-session return of dates with that signal's data. 2008–2019 decides. A rule needs 8 training episodes to be judged.</p>
+    <p class="notice" id="signals-family"></p>
+    <div class="controls">
+      <label>Comparison<select id="signals-view"><option value="standalone">Against an average date</option><option value="paired">Against buying at VIX ≥24</option><option value="exits">Exit rules, training differences</option><option value="portfolio">Funded sleeve (7.5% per signal)</option></select></label>
+      <label>Episode definition<select id="signals-definition"><option value="trigger_standalone">Re-arm when the gauge calms (decides)</option><option value="trigger_standalone_quiet">21 quiet sessions (robustness)</option></select></label>
+      <label>Sort by<select id="signals-sort"><option value="train">Training</option><option value="later">Later</option></select></label>
+    </div>
+    <div class="scroll outcome-scroll"><table id="signals-table"></table></div>
+    <h3>Episodes of one signal</h3>
+    <div class="controls"><label>Signal<select id="signals-rule"></select></label></div>
+    <div class="scroll"><table id="signals-episodes"></table></div>
+  </section>
+
+  <section class="panel" id="compare">
+    <h2>Compare two entry rules</h2>
+    <div class="controls">
+      <label>Experiment<select id="experiment"></select></label>
+      <label>Sample<select id="period"></select></label>
+      <label>First date<input id="from" type="date"></label>
+      <label>Last date<input id="to" type="date"></label>
+      <label class="check"><input id="exclude-2020" type="checkbox"> Exclude 2020 signal dates</label>
+    </div>
+    <div class="rules" id="rules"></div>
+    <p class="notice" id="quintile-note" hidden>Original quintile uses the full sample distribution. Use the frozen training cutoff for a historical comparison with a cutoff fixed before the later period.</p>
+    <p class="muted" id="comparison-coverage" aria-live="polite"></p>
+    <div class="scroll"><table id="comparison"></table></div>
+    <p class="muted">Spread is relative to all dates with data for both rules. An episode restarts after 21 trading sessions without a match in the shared sample. Holding periods can overlap.</p>
+    <canvas id="timeline" role="img" aria-label="Timeline of matches for rule A, both rules and rule B"></canvas>
+    <div class="controls">
+      <label>Matching dates<select id="overlap"><option value="any">Either rule</option><option value="both">Both rules</option><option value="a">A only</option><option value="b">B only</option></select></label>
+      <button id="download">Download matching dates</button><button id="prev">Previous</button><button id="next">Next</button>
+      <span class="muted" id="date-count"></span>
+    </div>
+    <div class="scroll"><table id="dates"></table></div>
+  </section>
+
+  <section class="panel" id="grid">
+    <h2>VIX parameter grid</h2>
+    <p class="muted">Choose a rank window and VIX floor. Click a cell to load its rule into B. Cells with fewer than 100 matching days are muted.</p>
+    <div class="controls">
+      <label>Sample<select id="grid-period"></select></label>
+      <label>Rank window<select id="grid-window"></select></label>
+      <label>VIX close floor<select id="grid-floor"></select></label>
+      <label>Metric<select id="grid-metric"><option value="spread">Return spread</option><option value="mean">Mean return</option><option value="days">Signal days</option><option value="drawdown">Mean max drawdown</option><option value="p10">10th-percentile return</option></select></label>
+    </div>
+    <div class="scroll"><table class="grid" id="matrix"></table></div>
+    <div class="scroll"><table id="picks"></table></div>
+    <p class="muted">Selection uses the highest training mean with at least 100 signals and mean drawdown no worse than the 504-day rank ≥80% baseline. The later sample has already been explored.</p>
+  </section>
+
+  <section class="panel" id="episodes">
+    <h2>Wait for a QQQ breakout</h2>
+    <p class="muted">After the first VIX ≥24 close following 21 quiet sessions, wait up to 10 trading sessions for QQQ to exceed its prior closing high. The paired averages use only episodes with both entries. The same-exit column holds the original exit date fixed.</p>
+    <div class="controls">
+      <label>Sample<select id="episode-period"></select></label>
+      <label>Previous QQQ closes<select id="episode-width"><option>3</option><option selected>5</option><option>10</option></select></label>
+    </div>
+    <p id="episode-summary"></p>
+    <div class="scroll"><table id="episode-table"></table></div>
+  </section>
+
+  <section class="panel" id="portfolio">
+    <h2>Funded tranche backtests</h2>
+    <p class="muted">Fixed comparisons in the repo’s v2 QQQ/SPY strategy with its trend guard, synthetic QLD sleeve, and costs. Training and fresh later runs start on the common date range. Carried runs keep the holdings built before the split. A and B replace the core tranche entry gate. The controls use the composite gate or disable core tranche purchases.</p>
+    <div class="controls"><label>Experiment<select id="portfolio-experiment"></select></label><label>Sample<select id="portfolio-period"><option value="training">Training</option><option value="later" selected>Later (fresh start)</option><option value="carried">Later (carried from training)</option></select></label></div>
+    <p class="muted" id="portfolio-coverage"></p>
+    <div class="scroll"><table id="portfolio-table"></table></div>
+  </section>
+
+  <section class="panel" id="ledger">
+    <h2>Funded trades</h2>
+    <p class="muted">What the portfolio bought and sold. Tranche, reinvest and QLD rows are buys. Greed trims and QLD sales are sells. Trend-guard switches are left out.</p>
+    <div class="controls"><label>Rule<select id="ledger-rule"></select></label><label>Sample<select id="ledger-period"></select></label>
+      <label>Trades<select id="ledger-kind"><option value="tranche">Core tranches</option><option value="qld">QLD sleeve</option><option value="all">All buys and sells</option></select></label><button id="ledger-download">Download trades CSV</button></div>
+    <p id="ledger-summary"></p>
+    <div class="scroll outcome-scroll"><table id="ledger-table"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Data and timing</h2>
+    <p class="muted" id="method"></p>
+    <div class="scroll"><table id="input-coverage"></table></div>
+    <p class="muted">Breadth uses the share of eligible Nasdaq-100 members above their 20-session average when a point-in-time constituent file is supplied. QQQE relative to QQQ is an equal-weight proxy. Term structure compares VIX with the same day’s VIX3M. The credit rule assumes the FRED closing observation is known one QQQ session later.</p>
+    <div class="links" id="sources"></div>
+  </section>
+</main>
+<script type="application/json" id="payload">__VIX_RESEARCH_DATA__</script>
+<script>
+"use strict";
+const data = JSON.parse(document.getElementById("payload").textContent);
+const el = id => document.getElementById(id);
+const count = new Intl.NumberFormat("en-US");
+const num = value => value == null ? "—" : count.format(value);
+const pct = value => value == null ? "—" : (value * 100).toFixed(2) + "%";
+const spread = value => {
+  if (value == null) return "—";
+  const points = Math.round(10000 * value) / 100;
+  return (points > 0 ? "+" : "") + points.toFixed(2) + " pp";
+};
+const date = value => value || "—";
+const sharpe = value => value == null ? "—" : value.toFixed(3);
+const periods = [["later", "Later"], ["training", "Training"], ["all", "Full sample"]];
+const pairs = (values, label) => values.map(value => [value, label(value)]);
+const options = entries => entries.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+const field = (label, id, entries) => `<label>${label}<select id="${id}">${options(entries)}</select></label>`;
+const later = (row, period) => period === "all" || row.period === period;
+const coverage = (rows, firstKey, lastKey = firstKey) =>
+  rows.length ? `${rows[0][firstKey]} to ${rows.at(-1)[lastKey]}` : "No shared dates";
+const mean = values => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+const avgReturn = rows => mean(rows.map(row => row.qqq_return));
+const delta = (a,b) => a == null || b == null ? null : a - b;
+const quantile = (ordered, probability) => {
+  if (!ordered.length) return null;
+  const position = (ordered.length - 1) * probability;
+  const lower = Math.floor(position), upper = Math.ceil(position);
+  return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower);
+};
+const table = (id, headings, rows, empty = "No rows in this sample") => {
+  el(id).innerHTML = "<thead><tr>" + headings.map(h => `<th scope="col">${h}</th>`).join("") +
+    "</tr></thead><tbody>" + (rows.length ? rows.map(([key, ...values]) =>
+      `<tr><th scope="row">${key}</th>` + values.map(v => `<td>${v}</td>`).join("") + "</tr>").join("") :
+      `<tr><td colspan="${headings.length}">${empty}</td></tr>`) + "</tbody>";
+};
+const defaultRule = {level:"close", floor:0, rank:0, window:504, easing:0, confirmation:"off", mode:"rule"};
+const experimentOptions = data.presets.map((experiment, index) => [index, experiment.name]);
+const rankOptions = pairs(data.ranks, v => v ? v + "%" : "Off");
+const floorOptions = pairs(data.floors, v => v || "Off");
+const windowOptions = pairs(data.windows, v => num(v) + " sessions");
+const lagOptions = pairs(data.lags, v => v ? v + " sessions" : "Off");
+const confirmations = [["off","Off"], ...Object.entries(data.filters)];
+const zip = data.zip_pick;
+const baselineQuintile = data.days.filter(row => row.period === "training").map(row => row.close).sort((a,b) => a-b);
+const frozen = baselineQuintile[Math.floor(.8 * baselineQuintile.length)];
+table("input-coverage", ["Input","Eligible signal dates","First date","Last date"], data.input_coverage
+  .map(row => [row.source,num(row.days),date(row.first),date(row.last)]));
+
+el("coverage").textContent = `${num(data.days.length)} signal dates · ${coverage(data.days, "signal_date")} · 63-session QQQ outcomes`;
+el("method").textContent = `Signals use end-of-day data and enter at the next QQQ close. The split is ${data.split}. Training exits before the split; later signals start on or after it. Boundary trades appear only in the full sample. Rank includes today and uses a complete lookback. Missing inputs are dropped from both sides of each comparison.`;
+for (const [label, url] of Object.entries(data.sources)) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.textContent = label;
+  el("sources").append(link);
+}
+for (const id of ["period","grid-period","episode-period","frequency-period","entries-period"]) el(id).innerHTML = options(periods);
+el("grid-period").value = "training";
+el("experiment").innerHTML = options([["custom","Custom rules"],...experimentOptions]);
+el("portfolio-experiment").innerHTML = options([...experimentOptions, ["wait", "Wait for QQQ recovery"]]);
+el("grid-window").innerHTML = options(windowOptions);
+el("grid-window").value = 504;
+el("grid-floor").innerHTML = options(floorOptions);
+el("rules").innerHTML = ["a","b"].map(side => `<fieldset><legend>Rule ${side.toUpperCase()}</legend><div class="controls">` +
+  field("Definition", side+"-mode", [["rule","Entry filters"],["q5","Original top quintile"],["frozen","Frozen training cutoff"]]) +
+  field("VIX observation", side+"-level", [["close","Close"],["high","Intraday high"]]) +
+  field("VIX floor", side+"-floor", floorOptions) + field("Rank", side+"-rank", rankOptions) +
+  field("Rank window", side+"-window", windowOptions) + field("VIX easing", side+"-easing", lagOptions) +
+  field("Confirmation / regime", side+"-confirmation", confirmations) + "</div></fieldset>").join("");
+
+const setRule = (side, spec) => {
+  for (const [key, value] of Object.entries({...defaultRule, ...spec})) el(side+"-"+key).value = value;
+};
+function readRule(side) {
+  const get = key => el(side+"-"+key).value;
+  const mode = get("mode");
+  for (const key of ["level","floor","rank","window"]) el(side+"-"+key).parentElement.hidden = mode !== "rule";
+  return {mode, level:get("level"), floor:+get("floor"), rank:+get("rank"), window:+get("window"),
+          easing:+get("easing"), confirmation:get("confirmation")};
+}
+function matches(row, rule) {
+  const level = row[rule.level], rank = row["rank_"+rule.window], ease = row["ease_"+rule.easing];
+  const confirmation = row[rule.confirmation];
+  if (rule.easing && ease == null || rule.confirmation !== "off" && confirmation == null) return null;
+  let okay;
+  if (rule.mode === "q5") okay = row.original_quintile === 5;
+  else if (rule.mode === "frozen") okay = frozen == null ? null : row.close >= frozen;
+  else {
+    if (level == null || rule.rank && rank == null) return null;
+    okay = level >= rule.floor && (!rule.rank || rank >= rule.rank / 100);
+  }
+  return okay == null ? null : okay && (!rule.easing || ease < 0) && (rule.confirmation === "off" || confirmation);
+}
+const nameOf = rule => [
+  rule.mode === "q5" ? "Original Q5" : rule.mode === "frozen" ? "Frozen VIX floor" :
+    rule.floor ? (rule.level === "high" ? "VIX high" : "VIX close") + " ≥ " + rule.floor : "",
+  rule.mode === "rule" && rule.rank ? rule.window + "d rank ≥ " + rule.rank + "%" : "",
+  rule.easing ? "VIX easing " + rule.easing + "d" : "",
+  data.filters[rule.confirmation]
+].filter(Boolean).join(" + ") || "Any eligible close";
+
+const outcomeColumns = [
+  ["later_mean_return","Later 63d QQQ mean",pct],
+  ["training_spread","Training spread",spread],
+  ["training_signal_days","Training signal days",num],
+  ["training_first_eligible_date","Training data from",date],
+  ["later_spread","Later spread",spread],
+  ["later_signal_days","Later signal days",num],
+  ["later_spread_excluding_2020","Later spread ex 2020",spread],
+  ["later_signal_days_excluding_2020","Later signal days ex 2020",num],
+  ["later_episodes","Later episodes",num],
+  ["later_episode_weighted_spread","Later episode-weighted spread",spread],
+  ["later_first_entry_spread","Later first-entry spread",spread],
+  ["later_largest_episode_days","Days in largest later episode",num],
+  ["later_spread_excluding_largest_episode","Later spread ex largest episode",spread],
+  ["later_portfolio_sharpe","Funded Sharpe (later, fresh)",sharpe],
+  ["later_composite_sharpe","Composite Sharpe (later, fresh)",sharpe],
+  ["later_no_tranche_sharpe","No-tranche Sharpe (later, fresh)",sharpe],
+  ["carried_portfolio_sharpe","Funded Sharpe (later, carried)",sharpe],
+  ["carried_composite_sharpe","Composite Sharpe (later, carried)",sharpe],
+  ["carried_no_tranche_sharpe","No-tranche Sharpe (later, carried)",sharpe],
+  ["training_portfolio_sharpe","Funded Sharpe (training)",sharpe],
+  ["training_composite_sharpe","Composite Sharpe (training)",sharpe],
+  ["training_no_tranche_sharpe","No-tranche Sharpe (training)",sharpe],
+  ["later_portfolio_max_drawdown","Funded max DD (later, fresh)",pct],
+  ["later_composite_max_drawdown","Composite max DD (later, fresh)",pct],
+  ["later_no_tranche_max_drawdown","No-tranche max DD (later, fresh)",pct],
+  ["training_portfolio_max_drawdown","Funded max DD (training)",pct],
+  ["training_no_tranche_max_drawdown","No-tranche max DD (training)",pct],
+  ["later_p10_return","Later 10th pct.",pct],
+  ["median_episode_gap_sessions","Median gap (sessions)",num],
+  ["later_mean_trade_drawdown","Mean trade max DD",pct],
+  ["later_worst_trade_drawdown","Worst trade max DD",pct],
+  ["later_median_return","Later 63d median",pct],
+  ["later_positive_rate","Later positive rate",pct],
+  ["later_portfolio_cagr","Funded CAGR (later, fresh)",pct],
+  ["later_funded_tranches","Funded tranches (later, fresh)",num],
+  ["training_episodes","Training episodes",num],
+  ["training_episode_weighted_spread","Training episode-weighted spread",spread],
+  ["training_first_entry_spread","Training first-entry spread",spread],
+  ["training_eligible_days","Training shared days",num],
+  ["later_eligible_days","Later shared days",num],
+];
+const outcomeExperiments = [...new Set(data.outcomes.map(row => row.experiment))];
+el("outcome-experiment").innerHTML = options([["all","All experiments"], ...pairs(outcomeExperiments, value => value)]);
+function outcomeRows() {
+  const experiment = el("outcome-experiment").value;
+  return data.outcomes.filter(row => experiment === "all" || row.experiment === experiment);
+}
+function renderOutcomes() {
+  const range = (start, end) => start && end ? start + " to " + end : "—";
+  const rows = outcomeRows();
+  table("outcome-table", ["Experiment / rule", ...outcomeColumns.map(([,label]) => label),
+    "Later shared dates", "Funded dates"],
+    rows.map(row => [
+      `<span class="muted">${row.experiment} · ${row.side}</span><span class="outcome-rule">${row.rule}</span>`,
+      ...outcomeColumns.map(([key,,format]) => format(row[key])),
+      range(row.later_first_eligible_date,row.later_last_eligible_date),
+      range(row.later_portfolio_start,row.later_portfolio_end),
+    ]));
+  el("outcome-table").querySelectorAll("tbody tr").forEach((element,i) => {
+    if (i && rows[i].side === "A") element.classList.add("group-start");
+  });
+}
+el("outcome-experiment").addEventListener("change", renderOutcomes);
+el("outcome-download").addEventListener("click", () => {
+  const rows = outcomeRows();
+  const columns = Object.keys(rows[0]);
+  downloadCsv("vix_outcome_summary.csv", [columns,...rows.map(row => columns.map(key => row[key]))]);
+});
+renderOutcomes();
+
+const decimal = value => value == null ? "—" : value.toFixed(1);
+const ruleNames = [...new Set(data.frequency.map(row => row.rule))];
+el("entries-rule").innerHTML = options(ruleNames.map(name => [name,name]));
+el("entries-rule").value = data.reference;
+const saveRows = (file, rows) => {
+  if (!rows.length) return;
+  const columns = Object.keys(rows[0]);
+  downloadCsv(file, [columns,...rows.map(row => columns.map(key => row[key]))]);
+};
+function renderFrequency() {
+  const rows = data.frequency.filter(row => row.period === el("frequency-period").value);
+  table("frequency-table", ["Rule","Signal days","% of days","Days / year","Episodes","Episodes / year","Spaced 63-session entries",
+    "Signal days per episode (median)","Largest episode (days)","Episode span (median sessions)","Median gap","Shortest gap","Longest gap","Gaps ≥ 63","Gaps ≥ 90",
+    "Longest stretch with no signal","Calendar years with a signal","Last signal"],
+    rows.map(row => [row.rule,num(row.signal_days),pct(row.share_of_days),decimal(row.signal_days_per_year),num(row.episodes),
+      decimal(row.episodes_per_year),num(row.spaced_63_session_entries),num(row.median_signal_days_per_episode),num(row.largest_episode_signal_days),
+      num(row.median_episode_span),num(row.median_gap),num(row.shortest_gap),num(row.longest_gap),pct(row.gaps_of_63_or_more),pct(row.gaps_of_90_or_more),
+      num(row.longest_stretch_without_signal),`${row.calendar_years_with_signal} of ${row.calendar_years}`,date(row.last_signal)]));
+}
+el("frequency-period").addEventListener("change",renderFrequency);
+
+const entryRows = () => data.entries.filter(row => row.rule === el("entries-rule").value && later(row,el("entries-period").value));
+function renderEntries() {
+  const rows = entryRows();
+  const field = key => rows.map(row => row[key]).filter(value => value != null);
+  const middle = values => quantile([...values].sort((a,b) => a-b),.5);
+  const won = rows.filter(row => row.trade_return > 0).length;
+  el("entries-summary").textContent = rows.length ? `${rows.length} entries · ${won} profitable · mean ${pct(mean(field("trade_return")))} · ` +
+    `median ${pct(middle(field("trade_return")))} · mean worst close ${pct(mean(field("worst")))} · mean best close ${pct(mean(field("best")))} · ` +
+    `median ${num(middle(field("sessions_to_low")))} sessions to the low` : "No episodes in this sample";
+  table("entries-table", ["First signal","Last signal","Signal days","Since previous start","After first VIX ≥24","VIX at signal","QQQ vs 252-day high",
+    "Entry","Entry price","Exit","Exit price","VIX at exit","Return","Worst","Best","Sessions to low","Sessions to recover","Mean of all signal days"],
+    rows.map(row => [row.signal_date,row.last_signal_date,num(row.signal_days),num(row.sessions_since_previous_start),num(row.sessions_after_first_vix_24),
+      decimal(row.vix_at_signal),pct(row.qqq_below_252_high),row.entry_date,row.entry_price.toFixed(2),row.exit_date,row.exit_price.toFixed(2),
+      decimal(row.vix_at_exit),pct(row.trade_return),pct(row.worst),pct(row.best),num(row.sessions_to_low),
+      row.sessions_to_recover == null ? "not by exit" : num(row.sessions_to_recover),pct(row.mean_return_all_signal_days)]));
+}
+for (const id of ["entries-rule","entries-period"]) el(id).addEventListener("change",renderEntries);
+el("entries-download").addEventListener("click",() => saveRows("vix_episode_entries.csv",entryRows()));
+
+const tactical = data.tactical;
+const tacticalPairs = [...(tactical.entry_pairs || []),...(tactical.exit_pairs || [])];
+el("tactical-trigger").innerHTML = options([...new Set(tacticalPairs.map(row => row.trigger))].map(name => [name,name]));
+const tacticalEpisodes = tactical.episodes || [];
+el("tactical-rule").innerHTML = options([...new Set(tacticalEpisodes.map(row => row.rule))].map(name => [name,name]));
+const tacticalNotes = {
+  "first order": "One tranche, bought in full by the baseline at the trigger. Differences are in profit after costs, as a share of the order, with T-bill interest on idle cash.",
+  "reserve profit": "The same plans, measured by what the investor earns on the whole reserve, with T-bill interest on unspent cash. This rewards buying more, so read it beside timing value.",
+  "hold length": "Both sides buy the whole order at the trigger. One sells after 63 sessions and earns T-bills to session 126. Timing value is measured against an average-date purchase held as long, so it takes out the extra quarter in stocks.",
+  reserve: "Four tranches, with the whole reserve at the trigger as the baseline. Plans that buy more earn more when QQQ rises, so the measure is timing value: profit beyond buying on an average date and holding as long.",
+  exit: "The whole order is bought at the trigger. The baseline holds to the deadline. X3 as drafted is listed only to show its conflict with the price ladder.",
+  portfolio: "A 70% QQQ/SPY core and 30% T-bill reserve, without the trend guard or QLD. Only X1 was selected. The other exits are described, not chosen. Matched compares with a static account that holds the sleeve's average QQQ weight.",
+};
+function renderTactical() {
+  const test = el("tactical-test").value, trigger = el("tactical-trigger").value, window = +el("tactical-window").value;
+  el("tactical-note").textContent = tacticalNotes[test];
+  el("tactical-trigger").parentElement.hidden = test === "portfolio";
+  el("tactical-window").parentElement.hidden = test === "portfolio" || test === "hold length";
+  if (test === "portfolio") return table("tactical-table", ["Period","Rule","Share per trigger","Sharpe","Minus static","Minus matched static","90% interval vs matched","CAGR","Max drawdown","Average equity","Average QQQ sleeve","Reserve at episode lows","Lots","Lots cut by cash"],
+    (tactical.portfolio || []).map(row => [row.period,row.rule,pct(row.size),sharpe(row.sharpe),sharpe(row.sharpe_minus_static),sharpe(row.sharpe_minus_matched),
+      row.sharpe_minus_matched_low == null ? "—" : sharpe(row.sharpe_minus_matched_low) + " to " + sharpe(row.sharpe_minus_matched_high),pct(row.cagr),pct(row.max_drawdown),pct(row.average_equity),pct(row.average_tactical),pct(row.reserve_at_episode_lows),num(row.lots),num(row.short_of_cash)]), "Run run_tactical.py first");
+  const group = test === "exit" ? tactical.exit_pairs : test === "hold length" ? tactical.hold_length : tactical.entry_pairs;
+  const reserve = test.startsWith("reserve"), metric = test === "reserve" ? "timing_value" : test === "reserve profit" ? "pnl" : null;
+  const rows = (group || []).filter(row => row.trigger === trigger && (test === "hold length" || row.window === window)
+    && row.group === (reserve ? "reserve" : test) && (!metric || row.metric === metric));
+  const pairs = [...new Map(rows.map(row => [[row.baseline,row.rule,row.metric].join("|"),row])).values()];
+  // A plan that places no extra order ties with its baseline, and a tie is not "better".
+  const acted = row => row.n == null ? "—" : `${Math.round(row.win_share * row.n)} of ${row.n - row.ties}`;
+  table("tactical-table", ["Rule","Baseline","Measure","Training difference","Training better","Better where it differed","Training without best","90% interval","Detectable","Passes","Later difference","Later better","Training profit (baseline)","Later profit (baseline)","Training mean worst mark",...(reserve ? ["Reserve spent (training, later)"] : []),"Episodes (training, later)"],
+    pairs.map(({baseline,rule,metric: measure}) => {
+      const one = period => rows.find(row => row.baseline === baseline && row.rule === rule && row.metric === measure && row.period === period) || {};
+      const train = one("training"), after = one("later");
+      return [rule,baseline,measure === "pnl" ? "Profit" : "Timing value",spread(train.difference),pct(train.win_share),acted(train),spread(train.without_best),
+        train.low90 == null ? "—" : spread(train.low90) + " to " + spread(train.high90),spread(train.detectable),train.passes === true ? "Yes" : "No",
+        spread(after.difference),pct(after.win_share),`${pct(train.mean_pnl)} (${pct(train.baseline_pnl)})`,`${pct(after.mean_pnl)} (${pct(after.baseline_pnl)})`,pct(train.worst_mark),
+        ...(reserve ? [`${pct(train.deployed)}, ${pct(after.deployed)}`] : []),`${num(train.n)}, ${num(after.n)}`];
+    }), "Run run_tactical.py first");
+}
+function renderTacticalEpisodes() {
+  const rows = tacticalEpisodes.filter(row => row.rule === el("tactical-rule").value);
+  table("tactical-episodes", ["Trigger","Period","VIX","Fills or sales","Profit","Worst mark","Timing value","First exit signal"],
+    rows.map(row => [row.trigger_date,row.period,decimal(row.vix),row.actions || "—",pct(row.pnl),pct(row.worst_mark),pct(row.timing_value),date(row.first_signal)]), "Run run_tactical.py first");
+}
+for (const id of ["tactical-test","tactical-trigger","tactical-window"]) el(id).addEventListener("change",renderTactical);
+el("tactical-rule").addEventListener("change",renderTacticalEpisodes);
+el("tactical-download").addEventListener("click",() => saveRows("tactical_episodes.csv",tacticalEpisodes.filter(row => row.rule === el("tactical-rule").value)));
+
+const firstRules = ["VIX >= 24","VIX >= 24 + easing 5d","VIX >= 24 + easing 10d","VIX >= 24 + easing 20d","504d rank >= 80%"];
+table("episode-first-table", ["Signal","New episode needs","Training episodes","Training excess","Later episodes","Later excess","Better, training","Better, later","Training without best","Later without best","Training return","Later return"],
+  firstRules.flatMap(rule => ["trigger_standalone","trigger_standalone_quiet"].flatMap(name => {
+    const rows = (tactical[name] || []).filter(row => row.rule === rule);
+    if (!rows.length) return [];
+    const t = rows.find(row => row.period === "training") || {}, l = rows.find(row => row.period === "later") || {};
+    return [[rule === "VIX >= 24 + easing 20d" ? rule + " (reference)" : rule,rows[0].reset,num(t.n),spread(t.difference),num(l.n),spread(l.difference),pct(t.win_share),pct(l.win_share),
+      spread(t.without_best),spread(l.without_best),pct(t.mean_pnl),pct(l.mean_pnl)]];
+  })), "Run run_triggers.py first");
+
+const signalEpisodes = tactical.trigger_episodes || [];
+el("signals-rule").innerHTML = options([...new Set(signalEpisodes.map(row => row.rule))].map(name => [name,name]));
+const signalFamily = (tactical.trigger_family || [])[0];
+if (signalFamily) el("signals-family").textContent = `${signalFamily.signals_tested} signals have enough training episodes. ${signalFamily.passes_observed} pass the rule. Luck alone gives about ${signalFamily.passes_by_luck_mean.toFixed(1)} on average (95th percentile ${signalFamily.passes_by_luck_95th.toFixed(0)}), and the chance of this many or more is ${pct(signalFamily.chance_of_this_many_passes)}. The chance that the best of ${signalFamily.signals_tested} signals looks at least this good is ${pct(signalFamily.chance_of_best)}.`;
+function renderSignals() {
+  const view = el("signals-view").value, sort = el("signals-sort").value;
+  el("signals-definition").parentElement.hidden = view !== "standalone";
+  // The luck check covers the standalone test with the episode definition that decides.
+  el("signals-family").hidden = !signalFamily || view !== "standalone" || el("signals-definition").value !== "trigger_standalone";
+  const index = rows => { const out = {}; rows.forEach(row => { (out[row.rule] ??= {})[row.period] = row; }); return out; };
+  const key = row => sort === "train" ? row.training?.difference : row.later?.difference;
+  const ordered = grouped => Object.entries(grouped).sort((a,b) => (key(b[1]) ?? -9) - (key(a[1]) ?? -9));
+  if (view === "standalone") {
+    const grouped = index(tactical[el("signals-definition").value] || []);
+    return table("signals-table", ["Signal","New episode needs","Training episodes","Training excess","90% interval","Better","Without best","Single-signal luck p","Passes","Later episodes","Later excess","Later better","Later without best","Episodes / year (later)","Training return","Mean worst close"],
+      ordered(grouped).map(([name,row]) => { const t = row.training || {}, l = row.later || {};
+        return [name,t.reset || l.reset,num(t.n),spread(t.difference),t.low90 == null ? "—" : spread(t.low90) + " to " + spread(t.high90),pct(t.win_share),spread(t.without_best),
+          t.shift_p == null ? "—" : t.shift_p.toFixed(3),t.passes ? "Yes" : "No",num(l.n),spread(l.difference),pct(l.win_share),spread(l.without_best),decimal(l.per_year),pct(t.mean_pnl),pct(t.worst_mark)]; }), "Run run_triggers.py first");
+  }
+  if (view === "paired") {
+    const grouped = index(tactical.trigger_pairs || []);
+    return table("signals-table", ["Signal","Training episodes","Fired","Median wait","Training difference","90% interval","Better","Without best","Passes","Later episodes","Later fired","Later difference","Later better"],
+      ordered(grouped).map(([name,row]) => { const t = row.training || {}, l = row.later || {};
+        return [name,num(t.n),num(t.fired),num(t.median_wait),spread(t.difference),t.low90 == null ? "—" : spread(t.low90) + " to " + spread(t.high90),pct(t.win_share),spread(t.without_best),t.passes ? "Yes" : "No",num(l.n),num(l.fired),spread(l.difference),pct(l.win_share)]; }), "Run run_triggers.py first");
+  }
+  if (view === "exits") {
+    const rows = (tactical.trigger_exits || []).filter(row => row.period === "training"), exits = [...new Set(rows.map(row => row.exit))];
+    return table("signals-table", ["Signal","Episodes",...exits], [...new Set(rows.map(row => row.rule))].map(name => {
+      const own = rows.filter(row => row.rule === name); return [name,num(own[0].n),...exits.map(e => spread(own.find(row => row.exit === e)?.difference))]; }), "Run run_triggers.py first");
+  }
+  const rows = (tactical.trigger_portfolio || []).filter(row => row.size < .1), grouped = {};
+  rows.forEach(row => { (grouped[row.rule] ??= {})[row.period] = row; });
+  table("signals-table", ["Signal","Sharpe, training","Minus matched static","Max drawdown, training","Sharpe, later","Minus matched static, later","Max drawdown, later","Lots, training / later"],
+    Object.entries(grouped).map(([name,row]) => { const t = row.training || {}, l = row.later || {};
+      return [name,sharpe(t.sharpe),sharpe(t.sharpe_minus_matched),pct(t.max_drawdown),sharpe(l.sharpe),sharpe(l.sharpe_minus_matched),pct(l.max_drawdown),`${num(t.lots)} / ${num(l.lots)}`]; }), "Run run_triggers.py first");
+}
+function renderSignalEpisodes() {
+  const rows = signalEpisodes.filter(row => row.rule === el("signals-rule").value);
+  table("signals-episodes", ["Signal","Period","Entry","VIX","Return","Beyond an average date","Worst close"],
+    rows.map(row => [row.signal_date,row.period,row.entry_date,decimal(row.vix),pct(row.pnl),spread(row.excess),pct(row.worst_mark)]), "Run run_triggers.py first");
+}
+for (const id of ["signals-view","signals-definition","signals-sort"]) el(id).addEventListener("change",renderSignals);
+el("signals-rule").addEventListener("change",renderSignalEpisodes);
+
+const ledgerRules = [...new Set(data.ledger.map(row => row.rule))];
+el("ledger-rule").innerHTML = options(ledgerRules.map(name => [name,name]));
+if (ledgerRules.includes(data.reference)) el("ledger-rule").value = data.reference;
+el("ledger-period").innerHTML = el("portfolio-period").innerHTML;
+el("ledger-period").value = "later";
+function ledgerRows() {
+  const kind = el("ledger-kind").value;
+  // Some rules also ran on shorter samples. Show the longest run.
+  const rows = data.ledger.filter(row => row.rule === el("ledger-rule").value && row.period === el("ledger-period").value);
+  const first = rows.length ? rows.map(row => row.measured_from).sort()[0] : "";
+  return rows.filter(row => row.measured_from === first && (kind === "all" || (kind === "tranche" ? /tranche/ : /qld/).test(row.action)));
+}
+function renderLedger() {
+  const rows = ledgerRows();
+  const bought = rows.filter(row => row.action === "tranche" && row.qqq_next_63 != null);
+  el("ledger-summary").textContent = rows.length ? `${rows.length} trades · measured from ${rows[0].measured_from}` +
+    (bought.length ? ` · ${bought.length} tranches with a complete outcome, next 63-session QQQ mean ${pct(mean(bought.map(row => row.qqq_next_63)))}` : "") : "No trades for this choice";
+  table("ledger-table", ["Date","Side","Action","% of account","QQQ close","VIX at signal","Cash after","Exposure after","QQQ next 63 sessions"],
+    rows.map(row => [row.date,row.side,row.action,pct(row.share_of_account),row.qqq_close.toFixed(2),decimal(row.vix_at_signal),pct(row.cash_after),pct(row.exposure_after),pct(row.qqq_next_63)]));
+}
+for (const id of ["ledger-rule","ledger-period","ledger-kind"]) el(id).addEventListener("change",renderLedger);
+el("ledger-download").addEventListener("click",() => saveRows("vix_portfolio_trades.csv",ledgerRows()));
+
+let joined = [], page = 0;
+const PAGE_SIZE = 12;
+function comparison() {
+  const a = readRule("a"), b = readRule("b");
+  const period = el("period").value, from = el("from").value, to = el("to").value;
+  const sample = data.days.filter(row => later(row, period) && (!from || row.signal_date >= from) &&
+    (!to || row.signal_date <= to) && (!el("exclude-2020").checked || !row.signal_date.startsWith("2020")));
+  joined = sample.map(row => ({...row, a:matches(row,a), b:matches(row,b)}))
+    .filter(row => row.a != null && row.b != null);
+  el("quintile-note").hidden = a.mode !== "q5" && b.mode !== "q5";
+  el("comparison-coverage").textContent = `${num(joined.length)} of ${num(sample.length)} dates have data for both rules · ${coverage(joined, "signal_date")}`;
+  const selection = (label, rows, countEpisodes = true) => {
+    const values = rows.map(row => row.qqq_return).sort((x,y) => x-y);
+    const starts = rows.filter((row,i) => !i || row.session - rows[i-1].session > 21);
+    const gaps = starts.slice(1).map((row,i) => row.session - starts[i].session).sort((x,y) => x-y);
+    return [label, num(rows.length), pct(joined.length ? rows.length / joined.length : null), pct(mean(values)), spread(delta(mean(values),avgReturn(joined))),
+      pct(quantile(values,.10)), pct(mean(rows.map(row => row.max_drawdown))),
+      countEpisodes ? num(starts.length) : "—", countEpisodes ? num(quantile(gaps,.50)) : "—",
+      countEpisodes && gaps.length ? num(gaps[0]) + "–" + num(gaps.at(-1)) : "—",
+      countEpisodes ? pct(mean(gaps.map(gap => +(gap >= 90)))) : "—",
+      countEpisodes ? spread(delta(avgReturn(starts),avgReturn(joined))) : "—"];
+  };
+  table("comparison", ["Selection","Signal days","% of days","Mean return","Spread","10th pct.","Mean max DD","Episodes","Median gap (sessions)","Gap range","Gaps ≥ 90","First-entry spread"], [
+    selection("A · "+nameOf(a), joined.filter(row => row.a)),
+    selection("B · "+nameOf(b), joined.filter(row => row.b)),
+    selection("Both", joined.filter(row => row.a && row.b)),
+    selection("A only", joined.filter(row => row.a && !row.b)),
+    selection("B only", joined.filter(row => row.b && !row.a)),
+    selection("All shared dates", joined, false)
+  ]);
+  page = 0;
+  dates();
+  plot();
+}
+
+function selectedDates() {
+  const overlap = el("overlap").value;
+  return joined.filter(r => overlap === "a" ? r.a && !r.b : overlap === "b" ? r.b && !r.a :
+    overlap === "both" ? r.a && r.b : r.a || r.b);
+}
+const matchName = row => row.a && row.b ? "Both" : row.a ? "A only" : "B only";
+function dates() {
+  const selected = selectedDates(), offset = page * PAGE_SIZE;
+  table("dates", ["Signal date","Matched","VIX close","VIX high","QQQ entry","QQQ exit","Return","Max DD"],
+    selected.slice(offset,offset+PAGE_SIZE).map(row => [row.signal_date,matchName(row),row.close.toFixed(2),
+      row.high == null ? "—" : row.high.toFixed(2),row.entry_date,row.exit_date,pct(row.qqq_return),pct(row.max_drawdown)]));
+  el("date-count").textContent = selected.length ? `${offset+1}–${Math.min(selected.length,offset+PAGE_SIZE)} of ${num(selected.length)}` : "No matching dates";
+  el("prev").disabled = page === 0;
+  el("next").disabled = offset+PAGE_SIZE >= selected.length;
+  el("download").disabled = selected.length === 0;
+}
+function plot() {
+  const canvas = el("timeline"), scale = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth, height = canvas.clientHeight;
+  canvas.width = width * scale; canvas.height = height * scale;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+  if (!joined.length) return;
+  const first = joined[0].session, span = Math.max(1,joined.at(-1).session-first);
+  const lanes = {"A only":17,"Both":41,"B only":65};
+  const colors = {"A only":"#18563e","Both":"#73417e","B only":"#2b5d8f"};
+  ctx.font = "12px system-ui";
+  for (const [label,y] of Object.entries(lanes)) {
+    ctx.fillStyle="#edf2ee"; ctx.fillRect(52,y-10,width-52,15);
+    ctx.fillStyle=colors[label]; ctx.fillText(label,0,y);
+  }
+  for (const row of selectedDates()) {
+    const name = matchName(row);
+    ctx.fillStyle=colors[name];
+    ctx.fillRect(52 + (width-54)*(row.session-first)/span,lanes[name]-10,2,15);
+  }
+}
+
+function grid() {
+  const period = el("grid-period").value, window = +el("grid-window").value;
+  const floor = +el("grid-floor").value, metric = el("grid-metric").value;
+  const matrix = new Map(data.grid.filter(row => row.period === period && row.window === window && row.floor === floor)
+    .map(row => [row.rank+"/"+row.easing,row]));
+  const label = value => metric === "days" ? num(value) : metric === "spread" ? spread(value) : pct(value);
+  const rule = readRule("b");
+  table("matrix", ["Rank",...data.lags.map(lag => lag ? lag+"d easing" : "No easing")],
+    data.ranks.map(rank => [rank ? "≥ "+rank+"%" : "Off", ...data.lags.map(lag => {
+      const row = matrix.get(rank+"/"+lag);
+      const selected = rule.floor === floor && rule.window === window && rule.rank === rank && rule.easing === lag &&
+        rule.mode === "rule" && rule.confirmation === "off" && rule.level === "close";
+      const tone = row.spread == null ? "#fafbf9" : row.spread >= 0
+        ? `hsl(145 36% ${98 - Math.min(22,row.spread*135)}%)` : `hsl(18 52% ${98 - Math.min(18,-row.spread*135)}%)`;
+      return `<button data-rank="${rank}" data-lag="${lag}" aria-pressed="${selected}" class="${row.days<100?"few":""}" style="background:${tone}">` +
+        `${label(row[metric])}<small>${num(row.days)} days</small></button>`;
+    })]));
+}
+table("picks", ["Training selection","Selected rule","Training return","Later return","Later spread","Later days"],
+  [["Original 504-session grid",zip],["All rank windows",data.extended_pick]].filter(([,pick])=>pick)
+    .map(([label,pick])=>[label,nameOf({...defaultRule,...pick.training}),pct(pick.training.mean),pct(pick.later.mean),
+      spread(pick.later.spread),num(pick.later.days)]));
+
+function episodes() {
+  const rows = data.episodes.filter(row => later(row,el("episode-period").value) && row.breakout === +el("episode-width").value);
+  const paired = rows.filter(row => row.confirmation);
+  el("episode-summary").textContent = `${paired.length} of ${rows.length} episodes confirmed · paired immediate ${pct(mean(paired.map(r=>r.immediate_return)))} · paired delayed ${pct(mean(paired.map(r=>r.delayed_return)))} · delayed with same exit ${pct(mean(paired.map(r=>r.same_exit_return)))}`;
+  table("episode-table", ["Fear signal","Confirmation","Wait (sessions)","Immediate","Delayed","Delayed, same exit"],
+    rows.map(r=>[r.trigger,date(r.confirmation),num(r.delay),pct(r.immediate_return),pct(r.delayed_return),pct(r.same_exit_return)]));
+}
+function portfolio() {
+  const choice = el("portfolio-experiment");
+  const title = choice.selectedOptions[0].textContent;
+  const rows = data.portfolio.filter(row => row.experiment === title && row.period === el("portfolio-period").value);
+  el("portfolio-coverage").textContent = rows.length ? coverage(rows,"first","last") + (rows[0].started !== rows[0].first ? ` · portfolio started ${rows[0].started}` : "") : "No funded run for this experiment and sample.";
+  table("portfolio-table", ["Core tranche rule","Funded tranches","CAGR","Sharpe","Max drawdown","Volatility","Sortino","Calmar","Longest underwater (sessions)","Worst month","Positive months","Average exposure","Average cash","QLD buys","Greed trims"],
+    rows.map(row=>[row.rule,num(row.tranches),pct(row.cagr),sharpe(row.sharpe),pct(row.drawdown),pct(row.volatility),sharpe(row.sortino),sharpe(row.calmar),num(row.longest_underwater),pct(row.worst_month),pct(row.positive_months),pct(row.average_exposure),pct(row.average_cash),num(row.qld_buys),num(row.greed_trims)]));
+}
+
+function preset(index) {
+  const choice = data.presets[index];
+  setRule("a",choice.a);
+  setRule("b",choice.b);
+  el("experiment").value = index;
+  el("portfolio-experiment").value = index;
+  comparison(); grid(); portfolio();
+}
+el("experiment").addEventListener("change", () => {if (el("experiment").value !== "custom") preset(+el("experiment").value);});
+el("rules").addEventListener("change", () => {el("experiment").value="custom"; comparison(); grid();});
+for (const id of ["period","from","to","exclude-2020"]) el(id).addEventListener("change",comparison);
+for (const id of ["grid-period","grid-window","grid-floor","grid-metric"]) el(id).addEventListener("change",grid);
+el("matrix").addEventListener("click", event => {
+  const button = event.target.closest("[data-rank]");
+  if (!button) return;
+  setRule("b",{rank:+button.dataset.rank, easing:+button.dataset.lag, window:+el("grid-window").value, floor:+el("grid-floor").value});
+  el("experiment").value = "custom";
+  el("period").value = el("grid-period").value;
+  comparison(); grid();
+  el("matrix").querySelector(`[data-rank="${button.dataset.rank}"][data-lag="${button.dataset.lag}"]`).focus();
+});
+for (const id of ["episode-period","episode-width"]) el(id).addEventListener("change",episodes);
+for (const id of ["portfolio-experiment","portfolio-period"]) el(id).addEventListener("change",portfolio);
+el("prev").addEventListener("click",()=>{page--; dates();});
+el("next").addEventListener("click",()=>{page++; dates();});
+el("overlap").addEventListener("change",()=>{page=0; dates(); plot();});
+function downloadCsv(file, rows) {
+  const cell = value => value == null ? "" : '"' + String(value).replaceAll('"','""') + '"';
+  const csv = rows.map(row => row.map(cell).join(",")).join("\n");
+  const url = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  const link = document.createElement("a"); link.href=url; link.download=file; link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+el("download").addEventListener("click",() => {
+  const keys = ["signal_date","entry_date","exit_date","close","high","rank_252","rank_504","rank_1260","qqq_return","max_drawdown","match"];
+  downloadCsv("vix_compared_signal_dates.csv", [keys,...selectedDates().map(row=>keys.map(key=>key === "match" ? matchName(row) : row[key]))]);
+});
+window.addEventListener("resize",plot);
+renderTactical(); renderTacticalEpisodes(); renderSignals(); renderSignalEpisodes(); renderFrequency(); renderEntries(); renderLedger();
+preset(data.presets.findIndex(row=>row.name==="QQQ recovery"));
+episodes();
+</script>
+</body>
+</html>
